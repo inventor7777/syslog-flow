@@ -38,7 +38,12 @@ logs/
 
 ## Build and Install
 
-Create a folder called `syslog-flow`, `cd` into it, and git clone this repository into it.
+Find a good, logical location for the log storage, then run:
+
+```bash
+git clone https://github.com/inventor7777/syslog-flow
+cd syslog-flow
+```
 
 Then, simply build and run the container:
 
@@ -46,20 +51,25 @@ Then, simply build and run the container:
 docker compose up --build -d
 ```
 
+Then, start right away by pointing devices at the server IP on syslog UDP/TCP port `514`, and then navigate to `<SERVER-IP:2200>` to view the logs live.
+
 Default ports:
 
-- `2200/tcp`: web UI and stats API
+- `2200/tcp`: **web UI** and stats API 
 - `514/udp`: syslog ingest
 - `514/tcp`: syslog ingest
 
-Default UI URL:
+## Update
 
-```text
-http://localhost:2200
+Back up your configuration first in case there is a breaking change.
+
+Then, cd back into the `syslog-flow` folder and run:
+
+```bash
+docker compose down
+git pull
+docker compose up --build -d
 ```
-
-Then, start by pointing devices at this host on syslog UDP/TCP port `514`.
-
 ----
 
 ## Notes
@@ -73,6 +83,12 @@ Then, start by pointing devices at this host on syslog UDP/TCP port `514`.
 
 
 ## Details, Config, and API
+
+Example config for rsyslog (`/etc/rsyslog.d/60-syslog-flow.conf`:
+
+```rsyslog
+*.* @192.168.x.x:514
+```
 
 On a fresh install, `syslog-flow` creates missing config files with defaults before startup.
 
