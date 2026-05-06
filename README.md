@@ -4,9 +4,9 @@ An awesome, lightweight plaintext syslog collection with a responsive and clean 
 
 ![banner](banner.png)
 
-I wanted an easy and light logging server that did not require a observability stack, so I created this ~250KB *(not including built container itself)* Docker container that is simple, self contained, with only 1 dependency.
+I wanted an easy and light logging server that did not require a observability stack, so I created this ~250KB *(not including built container itself)* Docker container that is simple, self contained, and only has 1 dependency.
 
-`syslog-flow` runs two processes in one container:
+The `syslog-flow` container runs two processes:
 
 - `rsyslogd` listens for syslog on UDP and TCP `514`
 - `syslog-flow` serves the web UI and stats API on `2200`
@@ -18,7 +18,7 @@ I wanted an easy and light logging server that did not require a observability s
 ## What It Does
 
 - Ingests logs using rsyslog
-- Stores ingested logs as plain text under `/logs` with date-based folders and one file per device
+- Stores ingested logs as plain text under `/logs` with logical organization.
 - Shows a live-updating log view in the browser
 - Supports day views, per-file views, global search, and severity filters
 - Shows simple statistics and live device activity
