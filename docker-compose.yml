@@ -3,8 +3,6 @@ services:
     build: .
     container_name: syslog-flow
     restart: unless-stopped
-    environment:
-      TZ: America/Chicago
     ports:
       - "2200:2200"
       - "514:514/udp"
@@ -12,3 +10,5 @@ services:
     volumes:
       - ./logs:/logs
       - ./config:/config
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro

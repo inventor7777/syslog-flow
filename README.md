@@ -53,6 +53,8 @@ docker compose up --build -d
 
 Then, start right away by pointing devices at the server IP on syslog UDP/TCP port `514`, and then navigate to `<SERVER-IP:2200>` to view the logs live.
 
+The included Compose file follows the host's timezone automatically by mounting `/etc/localtime` and `/etc/timezone` read-only into the container.
+
 Default ports:
 
 - `2200/tcp`: **web UI** and stats API 
