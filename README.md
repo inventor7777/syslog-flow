@@ -73,14 +73,7 @@ Then, start by pointing devices at this host on syslog UDP/TCP port `514`.
 
 ## Details, Config, and API
 
-The container mounts `./config` to `/config`:
-
-```yaml
-volumes:
-  - ./config:/config
-```
-
-On a fresh install, `syslog-flow` creates missing config files with defaults before startup. The `config/` directory is intentionally ignored by git so local settings stay local.
+On a fresh install, `syslog-flow` creates missing config files with defaults before startup.
 
 Generated files:
 
