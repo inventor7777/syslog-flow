@@ -67,7 +67,8 @@ Then, start by pointing devices at this host on syslog UDP/TCP port `514`.
 - Logs are stored as plain text only. There is no database.
 - `entrypoint.sh` keeps `rsyslogd` and the web process running together and stops the container if either one exits.
 - Basic mobile support is available! To keep it light, I did not implement features like collapsible sidebar, but I did test on iPhones of various sizes and added Jump to Top/Bottom buttons, among other things.
-- Disclaimer: all code was written by GPT 5.5 & 5.4 Codex. However, I did use common sense and I tested everything, as I use this myself.
+- PRs, issues, and discussions are welcome! However, please keep in mind that this exists to be extremely lightweight. If you need advanced features *(e.g authentication, reverse proxy support, multi-user support, Grafana)*, feel free to fork the repo and develop a custom version.
+- Disclaimer: all Go code was written by GPT 5.5 & 5.4 Codex. However, I did use common sense and I tested everything, as I use this myself.
 
 
 ## Details, Config, and API
