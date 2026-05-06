@@ -4,7 +4,7 @@ An awesome, lightweight plaintext syslog collection with a responsive and clean 
 
 ![banner](banner.png)
 
-I wanted an easy and light logging server that did not require a visibility stack, so I created this ~250KB *(not including built container itself)* Docker container that is simple, self contained, with only 1 dependency.
+I wanted an easy and light logging server that did not require a observability stack, so I created this ~250KB *(not including built container itself)* Docker container that is simple, self contained, with only 1 dependency.
 
 `syslog-flow` runs two processes in one container:
 
@@ -68,6 +68,7 @@ Then, start by pointing devices at this host on syslog UDP/TCP port `514`.
 - `entrypoint.sh` keeps `rsyslogd` and the web process running together and stops the container if either one exits.
 - Basic mobile support is available! To keep it light, I did not implement features like collapsible sidebar, but I did test on iPhones of various sizes and added Jump to Top/Bottom buttons, among other things.
 - PRs, issues, and discussions are welcome! However, please keep in mind that this exists to be extremely lightweight. If you need advanced features *(e.g authentication, reverse proxy support, multi-user support, Grafana)*, feel free to fork the repo and develop a custom version.
+- Currently, there is no automatic log pruning. This could change in the future.
 - Disclaimer: all Go code was written by GPT 5.5 & 5.4 Codex. However, I did use common sense and I tested everything, as I use this myself.
 
 
