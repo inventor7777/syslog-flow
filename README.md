@@ -159,4 +159,60 @@ Example response:
 }
 ```
 
-This endpoint returns raw numeric values and is suitable for simple external polling.
+Home Assistant `configuration.yaml` REST config:
+
+```yaml
+rest:
+  - resource: http://<YOUR-SERVER-IP>:2200/api/stats
+    scan_interval: 30
+    sensor:
+      - name: "Syslog Lines Per Second"
+        unique_id: lines_per_second
+        value_template: "{{ value_json.lines_per_second }}"
+        unit_of_measurement: "lines/s"
+        icon: mdi:speedometer
+        state_class: measurement
+
+      - name: "Syslog Lines Today"
+        unique_id: today_lines
+        value_template: "{{ value_json.today_lines }}"
+        unit_of_measurement: "lines"
+        icon: mdi:format-list-bulleted
+        state_class: total_increasing
+
+      - name: "Syslog Lines All Time"
+        unique_id: all_lines
+        value_template: "{{ value_json.all_lines }}"
+        unit_of_measurement: "lines"
+        icon: mdi:format-list-bulleted
+        state_class: total_increasing
+
+      - name: "Syslog Critical (5m)"
+        unique_id: critical_5m
+        value_template: "{{ value_json.critical_5m }}"
+        unit_of_measurement: "alerts"
+        icon: mdi:alert-plus-outline
+        state_class: measurement
+
+      - name: "Syslog Log Days"
+        unique_id: log_days
+        value_template: "{{ value_json.log_days }}"
+        unit_of_measurement: "days"
+        icon: mdi:calendar-text-outline
+        state_class: measurement
+
+      - name: "Syslog Devices"
+        unique_id: devices_count
+        value_template: "{{ value_json.devices }}"
+        unit_of_measurement: "devices"
+        icon: mdi:lan
+        state_class: measurement
+        
+      - name: "Syslog Total Size"
+        unique_id: log_bytes
+        value_template: "{{ value_json.log_bytes }}"
+        unit_of_measurement: "B"
+        icon: mdi:folder-text-outline
+        state_class: measurement
+        device_class: data_size
+```
