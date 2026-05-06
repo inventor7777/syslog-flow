@@ -2,7 +2,9 @@
 
 An awesome, lightweight plaintext syslog collection with a responsive and clean web UI.
 
-I wanted an easy and light logging server that did not require a visibility stack, so I created this ~250KB (not including built container itself) Docker container that is simple, self contained, with only 1 dependency.
+![banner](banner.png)
+
+I wanted an easy and light logging server that did not require a visibility stack, so I created this ~250KB *(not including built container itself)* Docker container that is simple, self contained, with only 1 dependency.
 
 `syslog-flow` runs two processes in one container:
 
