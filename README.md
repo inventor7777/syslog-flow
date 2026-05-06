@@ -53,8 +53,6 @@ docker compose up --build -d
 
 Then, start right away by pointing devices at the server IP on syslog UDP/TCP port `514`, and then navigate to `<SERVER-IP:2200>` to view the logs live.
 
-The included Compose file follows the host's timezone automatically by mounting `/etc/localtime` and `/etc/timezone` read-only into the container.
-
 Default ports:
 
 - `2200/tcp`: **web UI** and stats API 
@@ -81,6 +79,8 @@ docker compose up --build -d
 - Basic mobile support is available! To keep it light, I did not implement features like collapsible sidebar, but I did test on iPhones of various sizes and added Jump to Top/Bottom buttons, among other things.
 - PRs, issues, and discussions are welcome! However, please keep in mind that this exists to be extremely lightweight. If you need advanced features *(e.g authentication, reverse proxy support, multi-user support, Grafana)*, feel free to fork the repo and develop a custom version.
 - Currently, there is no automatic log pruning. This could change in the future.
+- Each log on disk will have an extra timestamp of when the server receives the log. This mitigates issues with devices that report strange dates on boot.
+- The Compose file automatically follows the server timezone (for knowing when to create new folders and reset day stats)
 - Disclaimer: all Go code was written by GPT 5.5 & 5.4 Codex. However, I did use common sense and I tested everything, as I use this myself.
 
 
