@@ -1,0 +1,14 @@
+services:
+  syslog-flow:
+    build: .
+    container_name: syslog-flow
+    restart: unless-stopped
+    environment:
+      TZ: America/Chicago
+    ports:
+      - "2200:2200"
+      - "514:514/udp"
+      - "514:514/tcp"
+    volumes:
+      - ./logs:/logs
+      - ./config:/config
