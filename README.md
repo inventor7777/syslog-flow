@@ -77,7 +77,7 @@ docker compose up --build -d
 - Logs are stored as plain text only. There is no database.
 - `entrypoint.sh` keeps `rsyslogd` and the web process running together and stops the container if either one exits.
 - Basic mobile support is available! To keep it light, I did not implement features like collapsible sidebar, but I did test on iPhones of various sizes and added Jump to Top/Bottom buttons, among other things.
-- PRs, issues, and discussions are welcome! However, please keep in mind that this exists to be extremely lightweight. If you need advanced features *(e.g authentication, reverse proxy support, multi-user support, Grafana)*, feel free to fork the repo and develop a custom version.
+- PRs, issues, and discussions are welcome! However, please keep in mind that this exists to be extremely lightweight. If you need advanced features *(e.g authentication, multi-user support, Grafana)*, feel free to fork the repo and develop a custom version.
 - Currently, there is no automatic log pruning. This could change in the future.
 - Each log on disk will have an extra timestamp of when the server receives the log. This mitigates issues with devices that report strange dates on boot.
 - The Compose file automatically follows the server timezone (for knowing when to create new folders and reset day stats)
