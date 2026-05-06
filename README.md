@@ -11,6 +11,10 @@ I wanted an easy and light logging server that did not require a visibility stac
 - `rsyslogd` listens for syslog on UDP and TCP `514`
 - `syslog-flow` serves the web UI and stats API on `2200`
 
+![banner](banner-2.png)
+
+----
+
 ## What It Does
 
 - Ingests logs using rsyslog
@@ -56,6 +60,7 @@ http://localhost:2200
 
 Then, start by pointing devices at this host on syslog UDP/TCP port `514`.
 
+----
 
 ## Notes
 
