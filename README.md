@@ -1,6 +1,8 @@
 # syslog-flow
 
-Plaintext syslog collection with a small web UI.
+An awesome, lightweight plaintext syslog collection with a responsive and clean web UI.
+
+I wanted an easy and light logging server that did not require a visibility stack, so I created this ~250KB (not including built container itself) Docker container that is simple, self contained, with only 1 dependency.
 
 `syslog-flow` runs two processes in one container:
 
@@ -9,13 +11,14 @@ Plaintext syslog collection with a small web UI.
 
 ## What It Does
 
-- Stores logs as plain text under `/logs` with date-based folders and one file per device
-- Shows a live log view in the browser
+- Ingests logs using rsyslog
+- Stores ingested logs as plain text under `/logs` with date-based folders and one file per device
+- Shows a live-updating log view in the browser
 - Supports day views, per-file views, global search, and severity filters
-- Shows statistics and device activity
+- Shows simple statistics and live device activity
 - Exposes a simple numeric stats API at `GET /api/stats`
 
-Example log layout:
+Example log layout on-disk:
 
 ```text
 logs/
@@ -23,46 +26,21 @@ logs/
     05/
       01/
         router.log
-        switch.log
+        nas.log
+        homeassistant.log
 ```
 
-Stored lines include an internal ingest timestamp prefix:
+## Build and Install
 
-```text
-2026-05-03T09:14:22-05:00 | 2026-05-03T09:14:21-05:00 router info dnsmasq: started
-```
+Create a folder called `syslog-flow`, `cd` into it, and git clone this repository into it.
 
-The UI hides that prefix when rendering logs, but uses it for ordering, recent activity, and live updates.
-
-## Build
-
-Build the container image:
-
-```sh
-docker build -t syslog-flow .
-```
-
-Build the Go binary directly:
-
-```sh
-go build ./cmd/syslog-flow
-```
-
-Direct host execution is mainly for development. The binary expects the same absolute paths the container uses:
-
-- `/logs`
-- `/config`
-- `/resources`
-
-## Install / Run
-
-The intended deployment is the included Compose setup:
+Then, simply build and run the container:
 
 ```sh
 docker compose up --build -d
 ```
 
-Published ports:
+Default ports:
 
 - `2200/tcp`: web UI and stats API
 - `514/udp`: syslog ingest
@@ -74,9 +52,18 @@ Default UI URL:
 http://localhost:2200
 ```
 
-Point devices at this host on syslog UDP/TCP port `514`.
+Then, start by pointing devices at this host on syslog UDP/TCP port `514`.
 
-## Config
+
+## Notes
+
+- Logs are stored as plain text only. There is no database.
+- `entrypoint.sh` keeps `rsyslogd` and the web process running together and stops the container if either one exits.
+- Basic mobile support is available! To keep it light, I did not implement features like collapsible sidebar, but I did test on iPhones of various sizes and added Jump to Top/Bottom buttons, among other things.
+- Disclaimer: all code was written by GPT 5.5 & 5.4 Codex. However, I did use common sense and I tested everything, as I use this myself.
+
+
+## Details, Config, and API
 
 The container mounts `./config` to `/config`:
 
@@ -153,24 +140,6 @@ Optional severity colors for rendered log tags:
 }
 ```
 
-## Web UI
-
-Current UI behavior:
-
-- `/`: live tail across recent logs
-- `/statistics`: summary view with device activity and totals
-- `/day/YYYY/MM/DD`: logs for a specific day
-- `file=...`: limit a day view to one device file
-- `q=...`: text filter
-- `level=...`: structured severity filter for `emerg`, `alert`, `crit`, `err`, `warning`, `notice`, `info`, `debug`
-
-The viewer supports:
-
-- live refresh while scrolled to the bottom
-- loading older lines when scrolling upward in day views
-- global search across stored logs
-- mobile `Jump to Top` and `Jump to Bottom` controls for long log views
-
 ## API
 
 `GET /api/stats`
@@ -190,8 +159,3 @@ Example response:
 ```
 
 This endpoint returns raw numeric values and is suitable for simple external polling.
-
-## Notes
-
-- Logs are stored as plain text only. There is no database.
-- `entrypoint.sh` keeps `rsyslogd` and the web process running together and stops the container if either one exits.
