@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -77,6 +78,7 @@ type PageData struct {
 type DeviceSummary struct {
 	Name     string
 	Day      string
+	Link     string
 	Lines    string
 	LineInfo string
 	LastSeen string
@@ -298,6 +300,7 @@ func dashboardData(days []Day) (DashboardData, error) {
 		data.Devices = append(data.Devices, DeviceSummary{
 			Name:     record.name,
 			Day:      record.day,
+			Link:     deviceDayLink(record.day, record.name),
 			Lines:    formatInt(record.lines),
 			LineInfo: formatLineInfo(record.day, record.lines),
 			LastSeen: formatSeen(record.mod),
@@ -406,6 +409,7 @@ func overviewPayloadFromData(snapshot statsSnapshot, dashboard DashboardData) ov
 	for _, device := range dashboard.Devices {
 		payload.Devices = append(payload.Devices, devicePayload{
 			Name:     device.Name,
+			Link:     device.Link,
 			LineInfo: device.LineInfo,
 			LastSeen: device.LastSeen,
 			IP:       device.IP,
@@ -433,6 +437,13 @@ func totalLogBytes(days []Day) int64 {
 		}
 	}
 	return total
+}
+
+func deviceDayLink(day, device string) string {
+	values := url.Values{
+		"file": []string{device + ".log"},
+	}
+	return "/day/" + day + "?" + values.Encode()
 }
 
 func currentLineStats() (lineStats, error) {

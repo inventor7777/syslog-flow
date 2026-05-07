@@ -292,11 +292,17 @@ var page = template.Must(template.New("page").Funcs(template.FuncMap{
       background: var(--panel);
       border: 1px solid var(--line);
       border-radius: 0.7rem;
+      color: inherit;
       display: flex;
       gap: 0.4rem;
       min-width: 0;
       padding: 0.62rem 0.7rem;
+      text-decoration: none;
       white-space: nowrap;
+    }
+    .device-row:hover {
+      border-color: var(--accent);
+      text-decoration: none;
     }
     .device-row strong {
       overflow: hidden;
@@ -505,7 +511,7 @@ var page = template.Must(template.New("page").Funcs(template.FuncMap{
                 <h3>Devices</h3>
                 <div class="device-list overview" data-overview-devices>
                   {{range .Devices}}
-                    <div class="device-row">
+                    <a class="device-row" href="{{.Link}}">
                       <strong{{with .Color}} style="color: {{.}}"{{end}}>{{.Name}}</strong>
                       <span class="sep">-</span>
                       <span>{{.LineInfo}}</span>
@@ -515,7 +521,7 @@ var page = template.Must(template.New("page").Funcs(template.FuncMap{
                         <span class="spacer"></span>
                         <span>{{.IP}}</span>
                       {{end}}
-                    </div>
+                    </a>
                   {{else}}
                     <p class="muted">No device logs yet.</p>
                   {{end}}
@@ -823,8 +829,9 @@ var page = template.Must(template.New("page").Funcs(template.FuncMap{
     }
 
     function buildOverviewDeviceNode(device) {
-      const row = document.createElement("div");
+      const row = document.createElement("a");
       row.className = "device-row";
+      row.href = device.link || "#";
 
       const name = document.createElement("strong");
       name.textContent = device.name || "";
@@ -1044,6 +1051,7 @@ type overviewPayload struct {
 
 type devicePayload struct {
 	Name     string `json:"name"`
+	Link     string `json:"link"`
 	LineInfo string `json:"lineInfo"`
 	LastSeen string `json:"lastSeen"`
 	IP       string `json:"ip,omitempty"`
