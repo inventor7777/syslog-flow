@@ -4,7 +4,27 @@ An awesome, lightweight plaintext syslog collection with a responsive and clean 
 
 ![banner](banner.png)
 
-I wanted an easy and light logging server that does not require an observability stack, so I created this ~250KB *(not including built container itself)* Docker container that is simple, self contained, and only has 1 dependency.
+I wanted an easy and light logging server that does not require an observability stack, so I created this ~210KB *(not including built container itself)* Docker container that is simple, self contained, and only has 1 dependency.
+
+<details>
+<summary>Actual repository size (without marketing assets)</summary>
+
+```text
+88	syslog-flow/cmd/syslog-flow/web.go
+8	syslog-flow/cmd/syslog-flow/logviewer.go
+8	syslog-flow/cmd/syslog-flow/config_generator.go
+64	syslog-flow/cmd/syslog-flow/main.go
+168	syslog-flow/cmd/syslog-flow
+168	syslog-flow/cmd
+8	syslog-flow/go.mod
+8	syslog-flow/Dockerfile
+8	syslog-flow/rsyslog.conf
+8	syslog-flow/docker-compose.yml
+8	syslog-flow/entrypoint.sh
+208	syslog-flow
+```
+
+</details>
 
 The `syslog-flow` container runs two processes:
 
