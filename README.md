@@ -18,10 +18,10 @@ The `syslog-flow` container runs two processes:
 ## What It Does
 
 - Ingests logs using rsyslog
-- Stores ingested logs as plain text under `/logs` with logical organization.
+- Stores ingested logs as plain text under `./logs` with logical organization.
 - Shows a live-updating log view in the browser
 - Supports day views, per-file views, global search, and severity filters
-- Shows simple statistics and live device activity
+- Shows simple statistics and live device activity at '/statistics`
 - Exposes a simple numeric stats API at `GET /api/stats`
 
 Example log layout on-disk:
