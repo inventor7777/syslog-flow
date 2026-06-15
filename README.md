@@ -100,7 +100,7 @@ docker compose up --build -d
 - PRs, issues, and discussions are welcome! However, please keep in mind that this exists to be extremely lightweight. If you need advanced features *(e.g authentication, multi-user support, Grafana)*, feel free to fork the repo and develop a custom version.
 - Currently, there is no automatic log pruning. This could change in the future.
 - Each log on disk will have an extra timestamp of when the server receives the log. This mitigates issues with devices that report strange dates on boot.
-- The Compose file automatically follows the server timezone (for knowing when to create new folders and reset day stats)
+- The Compose file follows the server timezone via `/etc/localtime` (used for day folders and day-based stats)
 - Disclaimer: all Go code was written by GPT 5.5 & 5.4 Codex. However, I did use common sense and I tested everything, as I use this myself.
 
 
