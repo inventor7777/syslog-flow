@@ -52,10 +52,10 @@ func defaultAppConfigFile() map[string]int {
 
 func defaultStatusColors() map[string]string {
 	return map[string]string{
-		"emerg":   "#FF4D4D",
-		"alert":   "#FF4D4D",
-		"crit":    "#FF4D4D",
-		"err":     "#FF6B6B",
+		"emerg":   "#FF0000",
+		"alert":   "#FF1400",
+		"crit":    "#FF5A00",
+		"err":     "#FF9100",
 		"warning": "#FFD166",
 		"notice":  "#7BDFF2",
 		"info":    "#9AA89F",
