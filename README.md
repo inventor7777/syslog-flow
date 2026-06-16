@@ -1,6 +1,8 @@
-# syslog-flow
+<p align="center"><img src="resources/apple-touch-icon.png"></p>
+<h1 align="center">syslog-flow</h1>
 
-An awesome, lightweight plaintext syslog collection with a responsive and clean web UI.
+<p align="center">An awesome, lightweight plaintext syslog collection with a responsive and clean web UI.
+</p>
 
 ![banner](banner.png)
 
