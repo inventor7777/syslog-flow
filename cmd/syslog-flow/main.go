@@ -162,7 +162,17 @@ type statsSnapshot struct {
 
 type deviceColorConfig struct {
 	modTime time.Time
-	colors  map[string]string
+	set     deviceColorSet
+}
+
+type deviceColorSet struct {
+	Exact    map[string]string    `json:"exact"`
+	Contains []deviceContainsRule `json:"contains"`
+}
+
+type deviceContainsRule struct {
+	Match string `json:"match"`
+	Color string `json:"color"`
 }
 
 type statusColorConfig struct {
@@ -802,27 +812,47 @@ func searchAll(query string) ([]string, error) {
 		return nil, nil
 	}
 
+	days, err := listDays()
+	if err != nil {
+		return nil, err
+	}
+	return searchDays(days, query)
+}
+
+func searchRecentDays(query string, limit int) ([]string, error) {
+	if query == "" {
+		return nil, nil
+	}
+
+	days, err := listDays()
+	if err != nil {
+		return nil, err
+	}
+	if limit > 0 && len(days) > limit {
+		days = days[:limit]
+	}
+	return searchDays(days, query)
+}
+
+func searchDays(days []Day, query string) ([]string, error) {
 	var records []logRecord
-	err := filepath.WalkDir(logRoot, func(path string, entry fs.DirEntry, err error) error {
+	for _, day := range days {
+		files, err := listFiles(day.Name)
 		if err != nil {
-			return err
+			return recordLines(records), err
 		}
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".log") {
-			return nil
+		for _, file := range files {
+			label := day.Name + "/" + file.Name
+			path := filepath.Join(logRoot, day.Name, file.Name)
+			found, err := scanFileRecords(path, logFilter{Query: query}, label)
+			if err != nil {
+				return recordLines(records), err
+			}
+			records = append(records, found...)
 		}
-		rel, err := filepath.Rel(logRoot, path)
-		if err != nil {
-			return err
-		}
-		found, err := scanFileRecords(path, logFilter{Query: query}, rel)
-		if err != nil {
-			return err
-		}
-		records = append(records, found...)
-		return nil
-	})
+	}
 	sortLogRecords(records)
-	return recordLines(records), err
+	return recordLines(records), nil
 }
 
 func scanFileRecords(path string, filter logFilter, label string) ([]logRecord, error) {
@@ -949,7 +979,15 @@ func deviceColor(name string) string {
 	if err != nil {
 		return ""
 	}
-	return config[name]
+	if color := config.Exact[name]; color != "" {
+		return color
+	}
+	for _, rule := range config.Contains {
+		if rule.Match != "" && strings.Contains(name, rule.Match) {
+			return rule.Color
+		}
+	}
+	return ""
 }
 
 func logHeadingColor(line string) string {
@@ -958,7 +996,7 @@ func logHeadingColor(line string) string {
 
 func deviceColorsJSON() template.JS {
 	colors, err := loadDeviceColors()
-	if err != nil || len(colors) == 0 {
+	if err != nil || (len(colors.Exact) == 0 && len(colors.Contains) == 0) {
 		return template.JS("{}")
 	}
 	data, err := json.Marshal(colors)
@@ -1002,53 +1040,78 @@ func interfaceThemeDeclarations(mode string) template.CSS {
 	return template.CSS(strings.TrimSpace(b.String()))
 }
 
-func loadDeviceColors() (map[string]string, error) {
+func loadDeviceColors() (deviceColorSet, error) {
 	info, err := os.Stat(deviceColorPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil
+			return deviceColorSet{}, nil
 		}
-		return nil, err
+		return deviceColorSet{}, err
 	}
 
 	colorCache.Lock()
 	cached := colorCache.deviceColorConfig
 	colorCache.Unlock()
 
-	if cached.colors != nil && cached.modTime.Equal(info.ModTime()) {
-		return cached.colors, nil
+	if (cached.set.Exact != nil || cached.set.Contains != nil) && cached.modTime.Equal(info.ModTime()) {
+		return cached.set, nil
 	}
 
 	data, err := os.ReadFile(deviceColorPath)
 	if err != nil {
-		return nil, err
+		return deviceColorSet{}, err
 	}
 
-	raw := make(map[string]string)
+	set := deviceColorSet{
+		Exact: make(map[string]string),
+	}
 	if len(strings.TrimSpace(string(data))) > 0 {
-		if err := json.Unmarshal(data, &raw); err != nil {
-			return nil, err
-		}
-	}
-
-	colors := make(map[string]string, len(raw))
-	for name, color := range raw {
-		if !validName(name) {
-			continue
-		}
-		if normalized, ok := normalizeHexColor(color); ok {
-			colors[name] = normalized
+		var structured deviceColorSet
+		if err := json.Unmarshal(data, &structured); err == nil && (structured.Exact != nil || structured.Contains != nil) {
+			for name, color := range structured.Exact {
+				if !validName(name) {
+					continue
+				}
+				if normalized, ok := normalizeHexColor(color); ok {
+					set.Exact[name] = normalized
+				}
+			}
+			for _, rule := range structured.Contains {
+				match := strings.TrimSpace(rule.Match)
+				if match == "" {
+					continue
+				}
+				if normalized, ok := normalizeHexColor(rule.Color); ok {
+					set.Contains = append(set.Contains, deviceContainsRule{
+						Match: match,
+						Color: normalized,
+					})
+				}
+			}
+		} else {
+			raw := make(map[string]string)
+			if err := json.Unmarshal(data, &raw); err != nil {
+				return deviceColorSet{}, err
+			}
+			for name, color := range raw {
+				if !validName(name) {
+					continue
+				}
+				if normalized, ok := normalizeHexColor(color); ok {
+					set.Exact[name] = normalized
+				}
+			}
 		}
 	}
 
 	colorCache.Lock()
 	colorCache.deviceColorConfig = deviceColorConfig{
 		modTime: info.ModTime(),
-		colors:  colors,
+		set:     set,
 	}
 	colorCache.Unlock()
 
-	return colors, nil
+	return set, nil
 }
 
 func loadStatusColors() (map[string]string, error) {

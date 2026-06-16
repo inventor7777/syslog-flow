@@ -17,6 +17,7 @@ var page = template.Must(template.New("page").Funcs(template.FuncMap{
 	"renderLogBody":    renderLogBody,
 	"deviceColorsJSON": deviceColorsJSON,
 	"interfaceTheme":   interfaceThemeDeclarations,
+	"statusColor":      statusColor,
 	"statusColorsJSON": statusColorsJSON,
 }).Parse(`<!doctype html>
 <html lang="en">
@@ -168,6 +169,15 @@ var page = template.Must(template.New("page").Funcs(template.FuncMap{
       box-shadow: var(--glow-soft);
     }
     .chip.active { border-color: var(--accent); background: var(--active-bg); color: var(--active-ink); }
+    .severity-chip {
+      border-color: var(--chip-accent, var(--line));
+      color: var(--chip-accent, inherit);
+    }
+    @media (prefers-color-scheme: dark) {
+      .severity-chip {
+        box-shadow: 0 0 12px var(--chip-accent, rgba(0, 120, 255, 0.25));
+      }
+    }
     form {
       display: flex;
       gap: 0.5rem;
@@ -320,6 +330,7 @@ var page = template.Must(template.New("page").Funcs(template.FuncMap{
     }
     .muted { color: var(--muted); }
     .overview-page .layout {
+      grid-template-columns: minmax(0, 1fr);
       height: auto;
       min-height: calc(100vh - 3.75rem);
     }
@@ -394,6 +405,14 @@ var page = template.Must(template.New("page").Funcs(template.FuncMap{
       border-radius: 0.55rem;
       margin-bottom: 1rem;
     }
+    @media (max-width: 1194px) and (min-width: 761px) {
+      .files {
+        align-content: flex-start;
+        max-height: 5.9rem;
+        overflow-y: auto;
+        padding-right: 0.15rem;
+      }
+    }
     @media (max-width: 760px) {
       body { overflow: auto; }
       header { align-items: center; flex-direction: row; flex-wrap: wrap; }
@@ -450,22 +469,29 @@ var page = template.Must(template.New("page").Funcs(template.FuncMap{
     </div>
   </header>
   <div class="layout">
-    <aside>
-      <form class="search-form" action="/search" method="get">
-        <input name="q" value="{{.Query}}" placeholder="Global Search">
-        <button type="submit" aria-label="Search logs" title="Search logs">
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M16.5,12C19,12 21,14 21,16.5C21,17.38 20.75,18.21 20.31,18.9L23.39,22L22,23.39L18.88,20.32C18.19,20.75 17.37,21 16.5,21C14,21 12,19 12,16.5C12,14 14,12 16.5,12M16.5,14A2.5,2.5 0 0,0 14,16.5A2.5,2.5 0 0,0 16.5,19A2.5,2.5 0 0,0 19,16.5A2.5,2.5 0 0,0 16.5,14M19,8H3V18H10.17C10.34,18.72 10.63,19.39 11,20H3C1.89,20 1,19.1 1,18V6C1,4.89 1.89,4 3,4H9L11,6H19A2,2 0 0,1 21,8V11.81C20.42,11.26 19.75,10.81 19,10.5V8Z"/>
-          </svg>
-        </button>
-      </form>
-      <p class="muted">Days</p>
-      {{range .Days}}
-        <a class="day {{if eq $.Selected .Name}}active{{end}}" href="/day/{{.Name}}">{{.Name}}</a>
-      {{else}}
-        <p class="muted">No logs yet.</p>
-      {{end}}
-    </aside>
+    {{if not .Overview}}
+      <aside>
+        <form class="search-form" action="/search" method="get">
+          <input name="q" value="{{.Query}}" placeholder="Global Search">
+          <button type="submit" name="scope" value="all" aria-label="Search all logs" title="Search all logs">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.44,13.73L14.71,14H15.5L20.5,19L19,20.5L14,15.5V14.71L13.73,14.44C12.59,15.41 11.11,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3M9.5,5C7,5 5,7 5,9.5C5,12 7,14 9.5,14C12,14 14,12 14,9.5C14,7 12,5 9.5,5Z"/>
+            </svg>
+          </button>
+          <button type="submit" name="scope" value="week" aria-label="Search last 7 days" title="Search last 7 days">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M15.5,12C18,12 20,14 20,16.5C20,17.38 19.75,18.21 19.31,18.9L22.39,22L21,23.39L17.88,20.32C17.19,20.75 16.37,21 15.5,21C13,21 11,19 11,16.5C11,14 13,12 15.5,12M15.5,14A2.5,2.5 0 0,0 13,16.5A2.5,2.5 0 0,0 15.5,19A2.5,2.5 0 0,0 18,16.5A2.5,2.5 0 0,0 15.5,14M19,8H5V19H9.5C9.81,19.75 10.26,20.42 10.81,21H5C3.89,21 3,20.1 3,19V5C3,3.89 3.89,3 5,3H6V1H8V3H16V1H18V3H19A2,2 0 0,1 21,5V13.03C20.5,12.22 19.8,11.54 19,11V8Z"/>
+            </svg>
+          </button>
+        </form>
+        <p class="muted">Days</p>
+        {{range .Days}}
+          <a class="day {{if eq $.Selected .Name}}active{{end}}" href="/day/{{.Name}}">{{.Name}}</a>
+        {{else}}
+          <p class="muted">No logs yet.</p>
+        {{end}}
+      </aside>
+    {{end}}
     <main>
       {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
       <section class="panel">
@@ -563,14 +589,14 @@ var page = template.Must(template.New("page").Funcs(template.FuncMap{
           </form>
           <div class="files">
             <a class="chip {{if eq .Severity ""}}active{{end}}" href="/day/{{.Selected}}{{if .File}}?file={{.File | urlquery}}{{if .Query}}&q={{.Query | urlquery}}{{end}}{{else if .Query}}?q={{.Query | urlquery}}{{end}}">All events</a>
-            <a class="chip {{if eq .Severity "emerg"}}active{{end}}" href="/day/{{.Selected}}?level=emerg{{if .File}}&file={{.File | urlquery}}{{end}}{{if .Query}}&q={{.Query | urlquery}}{{end}}">Emerg</a>
-            <a class="chip {{if eq .Severity "alert"}}active{{end}}" href="/day/{{.Selected}}?level=alert{{if .File}}&file={{.File | urlquery}}{{end}}{{if .Query}}&q={{.Query | urlquery}}{{end}}">Alert</a>
-            <a class="chip {{if eq .Severity "crit"}}active{{end}}" href="/day/{{.Selected}}?level=crit{{if .File}}&file={{.File | urlquery}}{{end}}{{if .Query}}&q={{.Query | urlquery}}{{end}}">Crit</a>
-            <a class="chip {{if eq .Severity "err"}}active{{end}}" href="/day/{{.Selected}}?level=err{{if .File}}&file={{.File | urlquery}}{{end}}{{if .Query}}&q={{.Query | urlquery}}{{end}}">Err</a>
-            <a class="chip {{if eq .Severity "warning"}}active{{end}}" href="/day/{{.Selected}}?level=warning{{if .File}}&file={{.File | urlquery}}{{end}}{{if .Query}}&q={{.Query | urlquery}}{{end}}">Warning</a>
-            <a class="chip {{if eq .Severity "notice"}}active{{end}}" href="/day/{{.Selected}}?level=notice{{if .File}}&file={{.File | urlquery}}{{end}}{{if .Query}}&q={{.Query | urlquery}}{{end}}">Notice</a>
-            <a class="chip {{if eq .Severity "info"}}active{{end}}" href="/day/{{.Selected}}?level=info{{if .File}}&file={{.File | urlquery}}{{end}}{{if .Query}}&q={{.Query | urlquery}}{{end}}">Info</a>
-            <a class="chip {{if eq .Severity "debug"}}active{{end}}" href="/day/{{.Selected}}?level=debug{{if .File}}&file={{.File | urlquery}}{{end}}{{if .Query}}&q={{.Query | urlquery}}{{end}}">Debug</a>
+            <a class="chip severity-chip {{if eq .Severity "emerg"}}active{{end}}" style="--chip-accent: {{statusColor "emerg"}};" href="/day/{{.Selected}}?level=emerg{{if .File}}&file={{.File | urlquery}}{{end}}{{if .Query}}&q={{.Query | urlquery}}{{end}}">Emerg</a>
+            <a class="chip severity-chip {{if eq .Severity "alert"}}active{{end}}" style="--chip-accent: {{statusColor "alert"}};" href="/day/{{.Selected}}?level=alert{{if .File}}&file={{.File | urlquery}}{{end}}{{if .Query}}&q={{.Query | urlquery}}{{end}}">Alert</a>
+            <a class="chip severity-chip {{if eq .Severity "crit"}}active{{end}}" style="--chip-accent: {{statusColor "crit"}};" href="/day/{{.Selected}}?level=crit{{if .File}}&file={{.File | urlquery}}{{end}}{{if .Query}}&q={{.Query | urlquery}}{{end}}">Crit</a>
+            <a class="chip severity-chip {{if eq .Severity "err"}}active{{end}}" style="--chip-accent: {{statusColor "err"}};" href="/day/{{.Selected}}?level=err{{if .File}}&file={{.File | urlquery}}{{end}}{{if .Query}}&q={{.Query | urlquery}}{{end}}">Err</a>
+            <a class="chip severity-chip {{if eq .Severity "warning"}}active{{end}}" style="--chip-accent: {{statusColor "warning"}};" href="/day/{{.Selected}}?level=warning{{if .File}}&file={{.File | urlquery}}{{end}}{{if .Query}}&q={{.Query | urlquery}}{{end}}">Warning</a>
+            <a class="chip severity-chip {{if eq .Severity "notice"}}active{{end}}" style="--chip-accent: {{statusColor "notice"}};" href="/day/{{.Selected}}?level=notice{{if .File}}&file={{.File | urlquery}}{{end}}{{if .Query}}&q={{.Query | urlquery}}{{end}}">Notice</a>
+            <a class="chip severity-chip {{if eq .Severity "info"}}active{{end}}" style="--chip-accent: {{statusColor "info"}};" href="/day/{{.Selected}}?level=info{{if .File}}&file={{.File | urlquery}}{{end}}{{if .Query}}&q={{.Query | urlquery}}{{end}}">Info</a>
+            <a class="chip severity-chip {{if eq .Severity "debug"}}active{{end}}" style="--chip-accent: {{statusColor "debug"}};" href="/day/{{.Selected}}?level=debug{{if .File}}&file={{.File | urlquery}}{{end}}{{if .Query}}&q={{.Query | urlquery}}{{end}}">Debug</a>
           </div>
         {{end}}
 
@@ -645,6 +671,29 @@ var page = template.Must(template.New("page").Funcs(template.FuncMap{
     let hasOlder = logViewer?.dataset.hasOlder === "true";
     let loadingOlder = false;
 
+    function deviceColorForName(name) {
+      if (!name) {
+        return "";
+      }
+      if (deviceColors && typeof deviceColors === "object" && !Array.isArray(deviceColors)) {
+        if (deviceColors.exact || deviceColors.contains) {
+          const exact = deviceColors.exact || {};
+          if (exact[name]) {
+            return exact[name];
+          }
+          const contains = Array.isArray(deviceColors.contains) ? deviceColors.contains : [];
+          for (const rule of contains) {
+            if (rule && typeof rule.match === "string" && rule.match && typeof rule.color === "string" && name.includes(rule.match)) {
+              return rule.color;
+            }
+          }
+          return "";
+        }
+        return deviceColors[name] || "";
+      }
+      return "";
+    }
+
     function hasViewerSelection() {
       const selection = window.getSelection();
       if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
@@ -665,8 +714,9 @@ var page = template.Must(template.New("page").Funcs(template.FuncMap{
       const head = document.createElement("span");
       head.className = "log-head";
       head.textContent = parts.head;
-      if (parts.device && deviceColors[parts.device]) {
-        head.style.color = deviceColors[parts.device];
+      const deviceColor = deviceColorForName(parts.device);
+      if (deviceColor) {
+        head.style.color = deviceColor;
       }
       node.appendChild(head);
       if (parts.tag) {
@@ -1272,8 +1322,15 @@ func handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	scope := strings.TrimSpace(r.URL.Query().Get("scope"))
 	days, err := listDays()
-	lines, scanErr := searchAll(query)
+	lines := []string(nil)
+	var scanErr error
+	if scope == "week" {
+		lines, scanErr = searchRecentDays(query, 7)
+	} else {
+		lines, scanErr = searchAll(query)
+	}
 
 	data := PageData{
 		Days:       days,

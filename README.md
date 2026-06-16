@@ -139,10 +139,20 @@ Optional per-device heading colors in the UI:
 
 ```json
 {
-  "router": "#00B4FF",
-  "switch": "#EB8C00"
+  "exact": {
+    "router": "#00B4FF",
+    "switch": "#EB8C00"
+  },
+  "contains": [
+    {
+      "match": "ZenWiFi",
+      "color": "#FF4D4D"
+    }
+  ]
 }
 ```
+
+`exact` is checked first. Then `contains` rules are checked top-to-bottom, and the first match wins.
 
 ### interface-colors.json
 

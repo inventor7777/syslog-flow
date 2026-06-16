@@ -14,7 +14,7 @@ func ensureConfigFiles() error {
 	if err := writeConfigFileIfMissing(appConfigPath, defaultAppConfigFile()); err != nil {
 		return err
 	}
-	if err := writeConfigFileIfMissing(deviceColorPath, map[string]string{}); err != nil {
+	if err := writeConfigFileIfMissing(deviceColorPath, defaultDeviceColorsFile()); err != nil {
 		return err
 	}
 	if err := writeConfigFileIfMissing(interfaceColorPath, defaultInterfaceColorsFile()); err != nil {
@@ -60,6 +60,13 @@ func defaultStatusColors() map[string]string {
 		"notice":  "#7BDFF2",
 		"info":    "#9AA89F",
 		"debug":   "#8E9AAF",
+	}
+}
+
+func defaultDeviceColorsFile() interface{} {
+	return map[string]any{
+		"exact":    map[string]string{},
+		"contains": []map[string]string{},
 	}
 }
 
