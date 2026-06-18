@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"encoding/json"
 	"html/template"
-	"io/fs"
 	"log"
 	"net/http"
 	"net/url"
@@ -61,6 +60,7 @@ type PageData struct {
 	TotalLogSize      string
 	LinesPerSecond    string
 	RefreshURL        string
+	RefreshCursor     int64
 	LiveRefreshMS     int
 	StatsRefreshMS    int
 	OverviewRefreshMS int
@@ -124,11 +124,19 @@ type lineSample struct {
 	allLines int
 }
 
+type criticalWindowState struct {
+	modTime    time.Time
+	size       int64
+	timestamps []time.Time
+}
+
 type logPayload struct {
 	Lines         []string `json:"lines"`
 	Start         int      `json:"start,omitempty"`
 	Total         int      `json:"total,omitempty"`
 	HasMoreBefore bool     `json:"hasMoreBefore,omitempty"`
+	Cursor        int64    `json:"cursor,omitempty"`
+	Replace       bool     `json:"replace,omitempty"`
 }
 
 type statsPayload struct {
@@ -241,11 +249,21 @@ var appConfigCache struct {
 	appConfig
 }
 
+var criticalCache = struct {
+	sync.Mutex
+	files map[string]criticalWindowState
+}{
+	files: make(map[string]criticalWindowState),
+}
+
 func main() {
 	if err := ensureConfigFiles(); err != nil {
 		log.Fatal(err)
 	}
 	if err := os.MkdirAll(logRoot, 0o755); err != nil {
+		log.Fatal(err)
+	}
+	if err := stateIndex.refresh(appNow()); err != nil {
 		log.Fatal(err)
 	}
 
@@ -264,99 +282,15 @@ func main() {
 }
 
 func dashboardData(days []Day) (DashboardData, error) {
-	data := DashboardData{
-		LatestDay:   days[0].Name,
-		DayCount:    formatInt(len(days)),
-		DeviceCount: "0",
-	}
-
-	devices := make(map[string]deviceRecord)
-	for _, day := range days {
-		files, err := listFiles(day.Name)
-		if err != nil {
-			return data, err
-		}
-		for _, file := range files {
-			path := filepath.Join(logRoot, day.Name, file.Name)
-			summary, err := summarizeFile(path, 12)
-			if err != nil {
-				return data, err
-			}
-			lastSeen := summary.modTime
-			if len(summary.tail) > 0 {
-				lastSeen = internalLineTime(summary.tail[len(summary.tail)-1], summary.modTime)
-			}
-
-			record := deviceRecord{
-				name:  strings.TrimSuffix(file.Name, ".log"),
-				day:   day.Name,
-				lines: summary.lineCount,
-				mod:   lastSeen,
-			}
-			if existing, ok := devices[record.name]; !ok || record.mod.After(existing.mod) {
-				devices[record.name] = record
-			}
-		}
-	}
-
-	records := make([]deviceRecord, 0, len(devices))
-	for _, record := range devices {
-		records = append(records, record)
-	}
-	sort.Slice(records, func(i, j int) bool {
-		return records[i].mod.After(records[j].mod)
-	})
-
-	data.DeviceCount = formatInt(len(devices))
-	for _, record := range records {
-		data.Devices = append(data.Devices, DeviceSummary{
-			Name:     record.name,
-			Day:      record.day,
-			Link:     deviceDayLink(record.day, record.name),
-			Lines:    formatInt(record.lines),
-			LineInfo: formatLineInfo(record.day, record.lines),
-			LastSeen: formatSeen(record.mod),
-			Color:    deviceColor(record.name),
-		})
-	}
-
-	return data, nil
+	return stateIndex.dashboard(appNow())
 }
 
 func liveLines(days []Day, limit int) ([]string, error) {
-	var records []recentRecord
-	for _, day := range days {
-		files, err := listFiles(day.Name)
-		if err != nil {
-			return nil, err
-		}
-		for _, file := range files {
-			path := filepath.Join(logRoot, day.Name, file.Name)
-			summary, err := summarizeFile(path, limit)
-			if err != nil {
-				return nil, err
-			}
-			for _, line := range summary.tail {
-				records = append(records, recentRecord{
-					line: day.Name + "/" + file.Name + "  " + line,
-					at:   internalLineTime(line, summary.modTime),
-				})
-			}
-		}
+	window, err := stateIndex.liveWindow(appNow(), limit)
+	if err != nil {
+		return nil, err
 	}
-
-	sort.Slice(records, func(i, j int) bool {
-		return records[i].at.Before(records[j].at)
-	})
-	if len(records) > limit {
-		records = records[len(records)-limit:]
-	}
-
-	lines := make([]string, 0, len(records))
-	for _, record := range records {
-		lines = append(lines, record.line)
-	}
-	return lines, nil
+	return window.lines, nil
 }
 
 func addStats(r *http.Request, data *PageData) {
@@ -376,16 +310,7 @@ func addStats(r *http.Request, data *PageData) {
 }
 
 func buildStatsSnapshot(days []Day) (statsSnapshot, error) {
-	stats, err := currentLineStats()
-	snapshot := statsSnapshot{
-		critical5m:     stats.critical5m,
-		todayLines:     stats.todayLines,
-		allLines:       stats.allLines,
-		totalLogSize:   totalLogBytes(days),
-		linesPerSecond: stats.linesPerSecond,
-		dayCount:       len(days),
-		deviceCount:    deviceCount(days),
-	}
+	_, snapshot, err := stateIndex.currentStats(appNow())
 	return snapshot, err
 }
 
@@ -484,48 +409,49 @@ func currentLineStats() (lineStats, error) {
 }
 
 func countLineStats(today string) (lineStats, error) {
-	stats := lineStats{todayDay: today}
-	cutoff := appNow().Add(-5 * time.Minute)
-	tailLimit := currentAppConfig().StatsTailLines
-	err := filepath.WalkDir(logRoot, func(path string, entry fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".log") {
-			return nil
-		}
-		summary, err := summarizeFile(path, tailLimit)
-		if err != nil {
-			return err
-		}
-		stats.allLines += summary.lineCount
-		rel, err := filepath.Rel(logRoot, path)
-		if err != nil {
-			return err
-		}
-		if strings.HasPrefix(filepath.ToSlash(rel), today+"/") {
-			stats.todayLines += summary.lineCount
-		}
-		if summary.modTime.After(cutoff) || summary.modTime.Equal(cutoff) {
-			criticalCount, err := countCriticalSince(path, cutoff)
-			if err != nil {
-				return err
-			}
-			stats.critical5m += criticalCount
-		}
-		return nil
-	})
+	stats, _, err := stateIndex.currentStats(appNow())
+	stats.todayDay = today
 	return stats, err
 }
 
 func countCriticalSince(path string, cutoff time.Time) (int, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return 0, err
+	}
+
+	criticalCache.Lock()
+	cached, ok := criticalCache.files[path]
+	criticalCache.Unlock()
+
+	if ok && cached.size == info.Size() && cached.modTime.Equal(info.ModTime()) {
+		trimmed := trimCriticalTimestamps(cached.timestamps, cutoff)
+		cached.timestamps = trimmed
+		criticalCache.Lock()
+		criticalCache.files[path] = cached
+		criticalCache.Unlock()
+		return len(trimmed), nil
+	}
+
+	var startOffset int64
+	timestamps := make([]time.Time, 0)
+	if ok && info.Size() >= cached.size && info.ModTime().After(cached.modTime) {
+		startOffset = cached.size
+		timestamps = trimCriticalTimestamps(cached.timestamps, cutoff)
+	}
+
 	file, err := os.Open(path)
 	if err != nil {
 		return 0, err
 	}
 	defer file.Close()
 
-	var count int
+	if startOffset > 0 {
+		if _, err := file.Seek(startOffset, 0); err != nil {
+			return 0, err
+		}
+	}
+
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for scanner.Scan() {
@@ -533,14 +459,41 @@ func countCriticalSince(path string, cutoff time.Time) (int, error) {
 		if line == "" {
 			continue
 		}
-		if internalLineTime(line, time.Time{}).Before(cutoff) {
+		at := internalLineTime(line, time.Time{})
+		if at.Before(cutoff) {
 			continue
 		}
 		if isCriticalSeverity(line) {
-			count++
+			timestamps = append(timestamps, at)
 		}
 	}
-	return count, scanner.Err()
+	if err := scanner.Err(); err != nil {
+		return 0, err
+	}
+
+	timestamps = trimCriticalTimestamps(timestamps, cutoff)
+	criticalCache.Lock()
+	criticalCache.files[path] = criticalWindowState{
+		modTime:    info.ModTime(),
+		size:       info.Size(),
+		timestamps: timestamps,
+	}
+	criticalCache.Unlock()
+	return len(timestamps), nil
+}
+
+func trimCriticalTimestamps(values []time.Time, cutoff time.Time) []time.Time {
+	if len(values) == 0 {
+		return nil
+	}
+	trimmed := values[:0]
+	for _, at := range values {
+		if at.Before(cutoff) {
+			continue
+		}
+		trimmed = append(trimmed, at)
+	}
+	return trimmed
 }
 
 func isCriticalSeverity(line string) bool {
@@ -717,68 +670,11 @@ func loadAppLocation() *time.Location {
 }
 
 func listDays() ([]Day, error) {
-	var days []Day
-	err := filepath.WalkDir(logRoot, func(path string, entry fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if !entry.IsDir() || path == logRoot {
-			return nil
-		}
-
-		rel, err := filepath.Rel(logRoot, path)
-		if err != nil {
-			return err
-		}
-		day := filepath.ToSlash(rel)
-		if len(strings.Split(day, "/")) < 3 {
-			return nil
-		}
-		if !validDayPath(day) {
-			return filepath.SkipDir
-		}
-		files, err := listFiles(day)
-		if err != nil {
-			return err
-		}
-		if len(files) == 0 {
-			return nil
-		}
-		days = append(days, Day{Name: day, Files: files})
-		return filepath.SkipDir
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	sort.Slice(days, func(i, j int) bool {
-		return days[i].Name > days[j].Name
-	})
-	return days, nil
+	return stateIndex.daysSnapshot(appNow())
 }
 
 func listFiles(day string) ([]LogFile, error) {
-	path := filepath.Join(logRoot, day)
-	entries, err := os.ReadDir(path)
-	if err != nil {
-		return nil, err
-	}
-
-	files := make([]LogFile, 0, len(entries))
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".log") || !validName(entry.Name()) {
-			continue
-		}
-		info, err := entry.Info()
-		if err != nil {
-			continue
-		}
-		files = append(files, LogFile{Name: entry.Name(), Size: info.Size()})
-	}
-	sort.Slice(files, func(i, j int) bool {
-		return files[i].Name < files[j].Name
-	})
-	return files, nil
+	return stateIndex.filesSnapshot(appNow(), day)
 }
 
 func readDayRecords(day, file string, filter logFilter) ([]logRecord, error) {

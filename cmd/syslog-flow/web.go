@@ -601,7 +601,7 @@ var page = template.Must(template.New("page").Funcs(template.FuncMap{
         {{end}}
 
         {{if .ResultInfo}}<p class="muted">{{.ResultInfo}}</p>{{end}}
-        {{if or .Lines .Selected}}<pre id="log-viewer" {{if .RefreshURL}}data-refresh-url="{{.RefreshURL}}" data-refresh-ms="{{.LiveRefreshMS}}"{{end}}{{if .OlderURL}} data-older-url="{{.OlderURL}}" data-start="{{.ChunkStart}}" data-total="{{.TotalLogLines}}" data-has-older="{{.HasOlder}}"{{end}}>{{range .Lines}}<span class="log-line" data-raw="{{.}}"><span class="log-head"{{with logHeadColor .}} style="color: {{.}}"{{end}}>{{logHead .}}</span>{{renderLogBody .}}</span>{{end}}</pre>{{end}}
+        {{if or .Lines .Selected}}<pre id="log-viewer" {{if .RefreshURL}}data-refresh-url="{{.RefreshURL}}" data-refresh-ms="{{.LiveRefreshMS}}"{{end}}{{if gt .RefreshCursor 0}} data-refresh-cursor="{{.RefreshCursor}}"{{end}}{{if .OlderURL}} data-older-url="{{.OlderURL}}" data-start="{{.ChunkStart}}" data-total="{{.TotalLogLines}}" data-has-older="{{.HasOlder}}"{{end}}>{{range .Lines}}<span class="log-line" data-raw="{{.}}"><span class="log-head"{{with logHeadColor .}} style="color: {{.}}"{{end}}>{{logHead .}}</span>{{renderLogBody .}}</span>{{end}}</pre>{{end}}
       </section>
     </main>
   </div>
@@ -663,6 +663,7 @@ var page = template.Must(template.New("page").Funcs(template.FuncMap{
     const overviewDevices = document.querySelector("[data-overview-devices]");
     let liveEnabled = true;
     const olderUrl = logViewer?.dataset.olderUrl || "";
+    let refreshCursor = Number.parseInt(logViewer?.dataset.refreshCursor || "0", 10);
     const liveRefreshMs = Number.parseInt(logViewer?.dataset.refreshMs || "10000", 10);
     const statsRefreshMs = Number.parseInt(document.body.dataset.statsRefreshMs || "10000", 10);
     const overviewRefreshMs = Number.parseInt(document.body.dataset.overviewRefreshMs || "10000", 10);
@@ -1033,10 +1034,33 @@ var page = template.Must(template.New("page").Funcs(template.FuncMap{
           return;
         }
         try {
-          const response = await fetch(logViewer.dataset.refreshUrl, { cache: "no-store" });
+          const refreshUrl = new URL(logViewer.dataset.refreshUrl, window.location.origin);
+          if (refreshCursor > 0 && preservePrefix) {
+            refreshUrl.searchParams.set("since", String(refreshCursor));
+          }
+          const response = await fetch(refreshUrl, { cache: "no-store" });
           if (response.ok) {
             const payload = await response.json();
             const nextLines = Array.isArray(payload.lines) ? payload.lines : [];
+            if (typeof payload.cursor === "number" && payload.cursor > 0) {
+              refreshCursor = payload.cursor;
+              logViewer.dataset.refreshCursor = String(payload.cursor);
+            }
+            if (payload.replace) {
+              replaceViewerLines(nextLines);
+              scrollToBottom();
+              return;
+            }
+            if (preservePrefix && refreshCursor > 0) {
+              if (nextLines.length === 0) {
+                return;
+              }
+              for (const line of nextLines) {
+                logViewer.appendChild(appendLineNode(line));
+              }
+              scrollToBottom();
+              return;
+            }
             if (linesEqual(nextLines, viewerLines())) {
               return;
             }
@@ -1132,11 +1156,14 @@ func handleIndex(w http.ResponseWriter, r *http.Request) {
 		data.Error = err.Error()
 	}
 	if len(days) > 0 {
-		lines, liveErr := liveLines(days, 200)
+		window, windowErr := stateIndex.liveWindow(appNow(), 200)
+		lines := window.lines
+		liveErr := windowErr
 		if liveErr != nil && data.Error == "" {
 			data.Error = liveErr.Error()
 		}
 		data.Lines = lines
+		data.RefreshCursor = window.cursor
 	}
 	if wantsLogPartial(r) {
 		if wantsJSONPartial(r) {
@@ -1265,11 +1292,44 @@ func handleDay(w http.ResponseWriter, r *http.Request) {
 	days, err := listDays()
 	files, fileErr := listFiles(day)
 	before, beforeErr := parseBeforeOffset(r)
+	since, sinceErr := parseSinceCursor(r)
 	filter := logFilter{Query: query, Severity: severity}
 	lines, start, total, scanErr := readDayWindow(day, file, filter, before, dayChunkSize)
 	if wantsLogPartial(r) {
 		if beforeErr != nil {
 			http.Error(w, beforeErr.Error(), http.StatusBadRequest)
+			return
+		}
+		if sinceErr != nil {
+			http.Error(w, sinceErr.Error(), http.StatusBadRequest)
+			return
+		}
+		if wantsJSONPartial(r) && before < 0 && since > 0 {
+			appended, cursor, replace, appendErr := stateIndex.dayAppends(appNow(), day, file, filter, since)
+			if appendErr != nil {
+				http.Error(w, appendErr.Error(), http.StatusInternalServerError)
+				return
+			}
+			if replace {
+				lines, start, total, scanErr = readDayWindow(day, file, filter, before, dayChunkSize)
+				if scanErr != nil {
+					http.Error(w, scanErr.Error(), http.StatusInternalServerError)
+					return
+				}
+				writeLogPayloadJSON(w, logPayload{
+					Lines:         lines,
+					Start:         start,
+					Total:         total,
+					HasMoreBefore: start > 0,
+					Cursor:        cursor,
+					Replace:       true,
+				})
+				return
+			}
+			writeLogPayloadJSON(w, logPayload{
+				Lines:  appended,
+				Cursor: cursor,
+			})
 			return
 		}
 		if scanErr != nil {
@@ -1302,12 +1362,19 @@ func handleDay(w http.ResponseWriter, r *http.Request) {
 		TotalLogLines: total,
 		HasOlder:      start > 0,
 	}
+	if cursor, cursorErr := stateIndex.dayCursor(appNow(), day, file); cursorErr == nil {
+		data.RefreshCursor = cursor
+	} else if data.Error == "" {
+		data.Error = cursorErr.Error()
+	}
 	if err != nil {
 		data.Error = err.Error()
 	} else if fileErr != nil {
 		data.Error = fileErr.Error()
 	} else if beforeErr != nil {
 		data.Error = beforeErr.Error()
+	} else if sinceErr != nil {
+		data.Error = sinceErr.Error()
 	} else if scanErr != nil {
 		data.Error = scanErr.Error()
 	}
@@ -1377,6 +1444,18 @@ func parseBeforeOffset(r *http.Request) (int, error) {
 		return 0, fmt.Errorf("invalid before offset")
 	}
 	return before, nil
+}
+
+func parseSinceCursor(r *http.Request) (int64, error) {
+	raw := strings.TrimSpace(r.URL.Query().Get("since"))
+	if raw == "" {
+		return 0, nil
+	}
+	since, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || since < 0 {
+		return 0, fmt.Errorf("invalid since cursor")
+	}
+	return since, nil
 }
 
 func writeLines(w http.ResponseWriter, lines []string) {
