@@ -137,6 +137,12 @@ Controls browser polling intervals and the per-file stats tail cache size:
 }
 ```
 
+- `live_refresh_seconds`: how often the live log viewer polls for new lines
+- `stats_refresh_seconds`: how often top-bar stats refresh, and how long stats snapshots stay cached
+- `overview_refresh_seconds`: how often the `Statistics` page refreshes its totals and device list
+- `stats_tail_lines`: how many recent lines per file the stats path may retain in memory
+- `stats_tail_max_age_hours`: only files newer than this keep cached tail lines; older files keep cached metadata only
+
 ### device-colors.json
 
 Optional per-device heading colors in the UI:
