@@ -14,6 +14,9 @@ func ensureConfigFiles() error {
 	if err := writeConfigFileIfMissing(appConfigPath, defaultAppConfigFile()); err != nil {
 		return err
 	}
+	if err := mergeConfigFileMissingKeys(appConfigPath, defaultAppConfigFile()); err != nil {
+		return err
+	}
 	if err := writeConfigFileIfMissing(deviceColorPath, defaultDeviceColorsFile()); err != nil {
 		return err
 	}
@@ -21,6 +24,9 @@ func ensureConfigFiles() error {
 		return err
 	}
 	if err := writeConfigFileIfMissing(statusColorPath, defaultStatusColors()); err != nil {
+		return err
+	}
+	if err := mergeConfigFileMissingKeys(statusColorPath, defaultStatusColors()); err != nil {
 		return err
 	}
 	return nil
@@ -41,12 +47,51 @@ func writeConfigFileIfMissing(path string, value any) error {
 	return os.WriteFile(path, data, 0o644)
 }
 
+func mergeConfigFileMissingKeys[T any](path string, defaults map[string]T) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+
+	raw := make(map[string]json.RawMessage)
+	if len(data) > 0 {
+		if err := json.Unmarshal(data, &raw); err != nil {
+			return err
+		}
+	}
+
+	changed := false
+	for key, value := range defaults {
+		if _, ok := raw[key]; ok {
+			continue
+		}
+		encoded, err := json.Marshal(value)
+		if err != nil {
+			return err
+		}
+		raw[key] = encoded
+		changed = true
+	}
+	if !changed {
+		return nil
+	}
+
+	merged, err := json.MarshalIndent(raw, "", "  ")
+	if err != nil {
+		return err
+	}
+	merged = append(merged, '\n')
+	return os.WriteFile(path, merged, 0o644)
+}
+
 func defaultAppConfigFile() map[string]int {
 	defaults := defaultAppConfig()
 	return map[string]int{
 		"live_refresh_seconds":     defaults.LiveRefreshSeconds,
 		"stats_refresh_seconds":    defaults.StatsRefreshSeconds,
 		"overview_refresh_seconds": defaults.OverviewRefreshSeconds,
+		"stats_tail_lines":         defaults.StatsTailLines,
+		"stats_tail_max_age_hours": defaults.StatsTailMaxAgeHours,
 	}
 }
 

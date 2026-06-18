@@ -191,6 +191,8 @@ type appConfig struct {
 	LiveRefreshSeconds     int `json:"live_refresh_seconds"`
 	StatsRefreshSeconds    int `json:"stats_refresh_seconds"`
 	OverviewRefreshSeconds int `json:"overview_refresh_seconds"`
+	StatsTailLines         int `json:"stats_tail_lines"`
+	StatsTailMaxAgeHours   int `json:"stats_tail_max_age_hours"`
 }
 
 type fileSummary struct {
@@ -484,6 +486,7 @@ func currentLineStats() (lineStats, error) {
 func countLineStats(today string) (lineStats, error) {
 	stats := lineStats{todayDay: today}
 	cutoff := appNow().Add(-5 * time.Minute)
+	tailLimit := currentAppConfig().StatsTailLines
 	err := filepath.WalkDir(logRoot, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -491,7 +494,7 @@ func countLineStats(today string) (lineStats, error) {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".log") {
 			return nil
 		}
-		summary, err := summarizeFile(path, 2048)
+		summary, err := summarizeFile(path, tailLimit)
 		if err != nil {
 			return err
 		}
@@ -595,6 +598,8 @@ func summarizeFile(path string, tailLimit int) (fileSummary, error) {
 		return fileSummary{}, err
 	}
 
+	retainTail := shouldRetainFileTail(info.ModTime(), currentAppConfig())
+
 	fileCache.Lock()
 	cached, ok := fileCache.files[path]
 	fileCache.Unlock()
@@ -636,11 +641,26 @@ func summarizeFile(path string, tailLimit int) (fileSummary, error) {
 		return fileSummary{}, err
 	}
 
+	returned := summary
+	if !retainTail {
+		summary.tail = nil
+		summary.tailLimit = 0
+	}
+
 	fileCache.Lock()
 	fileCache.files[path] = summary
 	fileCache.Unlock()
 
-	return sliceSummaryTail(summary, tailLimit), nil
+	return sliceSummaryTail(returned, tailLimit), nil
+}
+
+func shouldRetainFileTail(modTime time.Time, config appConfig) bool {
+	maxAge := time.Duration(config.StatsTailMaxAgeHours) * time.Hour
+	if maxAge <= 0 {
+		return false
+	}
+	cutoff := appNow().Add(-maxAge)
+	return modTime.After(cutoff) || modTime.Equal(cutoff)
 }
 
 func sliceSummaryTail(summary fileSummary, tailLimit int) fileSummary {
@@ -1313,6 +1333,8 @@ func defaultAppConfig() appConfig {
 		LiveRefreshSeconds:     2,
 		StatsRefreshSeconds:    10,
 		OverviewRefreshSeconds: 10,
+		StatsTailLines:         1024,
+		StatsTailMaxAgeHours:   24,
 	}
 }
 
@@ -1331,7 +1353,7 @@ func loadAppConfig() (appConfig, error) {
 	cached := appConfigCache.appConfig
 	appConfigCache.Unlock()
 
-	if cached.LiveRefreshSeconds > 0 && cached.StatsRefreshSeconds > 0 && cached.OverviewRefreshSeconds > 0 && cached.modTime.Equal(info.ModTime()) {
+	if cached.LiveRefreshSeconds > 0 && cached.StatsRefreshSeconds > 0 && cached.OverviewRefreshSeconds > 0 && cached.StatsTailLines > 0 && cached.StatsTailMaxAgeHours > 0 && cached.modTime.Equal(info.ModTime()) {
 		return cached, nil
 	}
 
@@ -1351,6 +1373,8 @@ func loadAppConfig() (appConfig, error) {
 	config.LiveRefreshSeconds = clampRefreshSeconds(config.LiveRefreshSeconds, defaults.LiveRefreshSeconds)
 	config.StatsRefreshSeconds = clampRefreshSeconds(config.StatsRefreshSeconds, defaults.StatsRefreshSeconds)
 	config.OverviewRefreshSeconds = clampRefreshSeconds(config.OverviewRefreshSeconds, defaults.OverviewRefreshSeconds)
+	config.StatsTailLines = clampStatsTailLines(config.StatsTailLines, defaults.StatsTailLines)
+	config.StatsTailMaxAgeHours = clampStatsTailMaxAgeHours(config.StatsTailMaxAgeHours, defaults.StatsTailMaxAgeHours)
 
 	appConfigCache.Lock()
 	appConfigCache.appConfig = config
@@ -1365,6 +1389,26 @@ func clampRefreshSeconds(value, fallback int) int {
 	}
 	if value > 3600 {
 		return 3600
+	}
+	return value
+}
+
+func clampStatsTailLines(value, fallback int) int {
+	if value < 1 {
+		return fallback
+	}
+	if value > 16384 {
+		return 16384
+	}
+	return value
+}
+
+func clampStatsTailMaxAgeHours(value, fallback int) int {
+	if value < 1 {
+		return fallback
+	}
+	if value > 24*365 {
+		return 24 * 365
 	}
 	return value
 }

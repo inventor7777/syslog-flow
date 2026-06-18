@@ -114,7 +114,7 @@ Example config for rsyslog (`/etc/rsyslog.d/60-syslog-flow.conf`:
 *.* @192.168.x.x:514
 ```
 
-On a fresh install, `syslog-flow` creates missing config files with defaults before startup.
+On startup, `syslog-flow` creates missing config files and also fills in missing top-level keys in `app.json` and `status-colors.json`.
 
 Generated files:
 
@@ -125,13 +125,15 @@ Generated files:
 
 ### app.json
 
-Controls browser polling intervals:
+Controls browser polling intervals and the per-file stats tail cache size:
 
 ```json
 {
   "live_refresh_seconds": 2,
   "stats_refresh_seconds": 10,
-  "overview_refresh_seconds": 10
+  "overview_refresh_seconds": 10,
+  "stats_tail_lines": 1024,
+  "stats_tail_max_age_hours": 24
 }
 ```
 
