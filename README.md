@@ -1,7 +1,7 @@
 <p align="center"><img src="resources/apple-touch-icon.png"></p>
 <h1 align="center">syslog-flow</h1>
 
-<p align="center"><b>An awesome, lightweight plaintext syslog collection with a responsive and clean web UI.</b>
+<p align="center"><b>An awesome, lightweight plaintext syslog server with a responsive and clean web UI.</b>
 </p>
 
 <p align="center">Plain-text logs. No database. No observability stack. Just your logs and a sweet web UI.
@@ -9,24 +9,25 @@
 
 ![banner](banner.png)
 
-I wanted an easy and light logging server that does not require an observability stack, so I created this ~210KB *(not including built container itself)* Docker container that is simple, self contained, and only has 1 dependency.
+I wanted an easy and light logging server that does not require an observability stack. I kept seeing the option to send syslogs to a server on all sorts of random devices, and I decided that centralized logging sounded like an exceptional feature to have. However, when I explored the available options, I was shocked to see how overly complicated they were. I have a relatively small homelab and I just wanted logs, not a clustered, overly complex system. So I created this ~140KB *(not including built container itself)* Docker container that is simple, self contained, and only has 1 dependency.
 
 <details>
 <summary>Actual repository size (without marketing assets)</summary>
 
 ```text
-88	syslog-flow/cmd/syslog-flow/web.go
-8	syslog-flow/cmd/syslog-flow/logviewer.go
+4	syslog-flow/Dockerfile
+4	syslog-flow/cmd/syslog-flow/logviewer.go
+4	syslog-flow/docker-compose.yml
+4	syslog-flow/entrypoint.sh
+4	syslog-flow/go.mod
+4	syslog-flow/rsyslog.conf
 8	syslog-flow/cmd/syslog-flow/config_generator.go
-64	syslog-flow/cmd/syslog-flow/main.go
-168	syslog-flow/cmd/syslog-flow
-168	syslog-flow/cmd
-8	syslog-flow/go.mod
-8	syslog-flow/Dockerfile
-8	syslog-flow/rsyslog.conf
-8	syslog-flow/docker-compose.yml
-8	syslog-flow/entrypoint.sh
-208	syslog-flow
+12	syslog-flow/cmd/syslog-flow/index.go
+32	syslog-flow/cmd/syslog-flow/main.go
+52	syslog-flow/cmd/syslog-flow/web.go
+112	syslog-flow/cmd/syslog-flow
+116	syslog-flow/cmd
+140	syslog-flow
 ```
 
 </details>
