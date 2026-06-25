@@ -1,7 +1,10 @@
 <p align="center"><img src="resources/apple-touch-icon.png"></p>
 <h1 align="center">syslog-flow</h1>
 
-<p align="center">An awesome, lightweight plaintext syslog collection with a responsive and clean web UI.
+<p align="center"><b>An awesome, lightweight plaintext syslog collection with a responsive and clean web UI.</b>
+</p>
+
+<p align="center">Plain-text logs. No database. No observability stack. Just your logs and a sweet web UI.
 </p>
 
 ![banner](banner.png)
