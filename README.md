@@ -9,7 +9,7 @@
 
 ![banner](banner.png)
 
-I wanted an easy and light logging server that does not require an observability stack. I kept seeing the option to send syslogs to a server on all sorts of random devices, and I decided that centralized logging sounded like an exceptional feature to have. However, when I explored the available options, I was shocked to see how overly complicated they were. I have a relatively small homelab and I just wanted logs, not a clustered, overly complex system. So I created this ~140KB *(not including built container itself)* Docker container that is simple, self contained, and only has 1 dependency.
+I wanted an easy and light logging server that does not require an observability stack. I kept seeing the option to send syslogs to a server on all sorts of random devices, and I decided that centralized logging sounded like an exceptional feature to have. However, when I explored the available options, I was shocked to see how overly complicated they were. I have a relatively small homelab and I just wanted logs, not an overly complex observability stack. So I created this ~140KB *(not including built container itself)* Docker container that is simple, self contained, and only has 1 dependency.
 
 <details>
 <summary>Actual repository size (without marketing assets)</summary>
