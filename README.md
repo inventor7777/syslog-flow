@@ -115,17 +115,20 @@ docker compose up --build -d
 - Currently, there is no automatic log pruning. This could change in the future.
 - Each log on disk will have an extra timestamp of when the server receives the log. This mitigates issues with devices that report strange dates on boot.
 - The Compose file follows the server timezone via `/etc/localtime` (used for day folders and day-based stats)
-- Why not use a DB? Because there are other solutions for that, and I dislike gray box software which uses a proprietary or hard-to-access DB schema. The logs here are simply text files, and you can move them around freely without breaking anything major.
-- Disclaimer: all Go code was written by GPT 5.5 & 5.4 Codex. However, I did use common sense and I tested everything, as I use this myself.
+- syslog-flow is *not* a SIEM. It just accepts, stores, and views logs.
+- Why not use a DB? Because there are other solutions for that, and I dislike gray box software which uses a proprietary or hard-to-access DB schema. The logs here are simply text files, and you can move them around freely without breaking anything. Of course, you will want to refresh the JSON caches if you do that :)
+- Disclaimer: all Go code was written by GPT 5.6 Terra & 5.4 Codex. However, I did use common sense and I tested everything, as I use this myself.
 
 
 ## Details, Config, and API
 
-Example config for rsyslog (`/etc/rsyslog.d/60-syslog-flow.conf`:
+Example config for a client rsyslog (`/etc/rsyslog.d/60-syslog-flow.conf`:
 
 ```rsyslog
 *.* @192.168.x.x:514
 ```
+
+---
 
 On startup, `syslog-flow` creates missing config files and also fills in missing top-level keys in `app.json` and `status-colors.json`.
 
