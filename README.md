@@ -1,15 +1,15 @@
 <p align="center"><img src="resources/apple-touch-icon.png"></p>
 <h1 align="center">syslog-flow</h1>
 
-<p align="center"><b>An awesome, lightweight plaintext syslog server with a responsive and clean web UI.</b>
+<p align="center"><b>A lightweight syslog server with plain-text storage and a clean, responsive web UI.</b>
 </p>
 
-<p align="center">Plain-text logs. No database. No observability stack. Just your logs, JSON caches, and a sweet web UI.
+<p align="center"> Send syslogs from your routers, switches, firewalls, NASes, or Linux servers and watch them live in your browser, or browse historical logs from disk using the intuitive sidebar. Plain-text logs. No database, Grafana, Kubernetes, or Elasticsearch.
 </p>
 
 ![banner](banner.png)
 
-I wanted an easy and light logging server that does not require an observability stack. I kept seeing the option to send syslogs to a server on all sorts of random devices, and I decided that centralized logging sounded like an exceptional feature to have. However, when I explored the available options, I was shocked to see how overly complicated they were. I have a relatively small homelab and I just wanted logs, not an overly complex observability stack. So I created this ~190KB *(not including built container itself)* Docker container that is simple, self contained, and only has 1 dependency.
+I had always noticed "Remote Syslog" options on various devices. When I learned about how it worked, I was looking forward to setting it up, as it makes troubleshooting failures and real time visibility much easier. However, when I explored the available options, I was shocked to see how overly complicated they were. I just wanted somewhere to send and store logs, with a clean interface to read them. So I created syslog-flow - a Docker container that is simple, self contained, and only has 1 dependency.
 
 <details>
 <summary>Actual repository size (without marketing assets)</summary>
@@ -48,13 +48,13 @@ The `syslog-flow` container runs two processes:
 
 ## What It Does
 
-- Ingests logs using rsyslog
-- Stores ingested logs as plain text under `./logs` with logical organization.
+- Ingests logs using rsyslog for reliable parsing
 - Shows a live-updating log view in the browser
-- Supports day views, per-file views, global search, and severity filters
+- Stores ingested logs as plain text under `./logs` with logical folder organization.
+- Supports day views, per-device views, global search, and severity filters
 - Shows simple statistics and live device activity at '/statistics`
 - Exposes a simple numeric stats API at `GET /api/stats`
-- Caches key information in per-day JSON files for super fast startup and API
+- Caches key information in per-day JSON files for super fast startup and responsive API
 
 Example log layout on-disk:
 
@@ -73,18 +73,18 @@ logs/
 
 Find a good, logical location for the log storage, then run:
 
-```bash
+```shell
 git clone https://github.com/inventor7777/syslog-flow
 cd syslog-flow
 ```
 
 Then, simply build and run the container:
 
-```sh
+```shell
 docker compose up --build -d
 ```
 
-Then, start right away by pointing devices at the server IP on syslog UDP/TCP port `514`, and then navigate to `<SERVER-IP:2200>` to view the logs live.
+Then, start right away by pointing devices at the server IP on syslog UDP/TCP port `514`, and then navigate to `<SERVER-IP:2200>` to view the logs in real time.
 
 Default ports:
 
