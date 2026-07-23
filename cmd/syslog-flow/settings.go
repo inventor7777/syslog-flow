@@ -68,7 +68,7 @@ var settingsPage = template.Must(template.New("settings").Funcs(template.FuncMap
     @media (prefers-color-scheme: dark) { :root { {{interfaceTheme "dark"}} } }
     * { box-sizing: border-box; }
     body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.45 ui-sans-serif, "Aptos", "Segoe UI", sans-serif; }
-    header { align-items: center; background: var(--panel-strong); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); display: flex; gap: 1rem; padding: 1rem 1.25rem; position: sticky; top: 0; z-index: 2; }
+    header { align-items: center; background: var(--panel-strong); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); display: flex; gap: 1rem; min-height: 64px; padding: 1rem 1.25rem; position: sticky; top: 0; z-index: 2; }
     h1 { font-size: 1.1rem; letter-spacing: 0.03em; margin: 0; }
     a { color: var(--accent-strong); text-decoration: none; }
     a:hover { text-decoration: underline; }
