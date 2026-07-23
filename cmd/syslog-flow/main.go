@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"container/heap"
 	"encoding/json"
 	"html/template"
 	"log"
@@ -26,6 +27,7 @@ const (
 	faviconPath        = "/resources/favicon.ico"
 	appleIconPath      = "/resources/apple-touch-icon.png"
 	dayChunkSize       = 500
+	maxSearchResults   = 5000
 )
 
 var appLocation = loadAppLocation()
@@ -108,6 +110,93 @@ type recentRecord struct {
 type logRecord struct {
 	line string
 	at   time.Time
+}
+
+type searchResults struct {
+	lines   []string
+	limited bool
+}
+
+type logRecordHeap []logRecord
+
+func (h logRecordHeap) Len() int { return len(h) }
+func (h logRecordHeap) Less(i, j int) bool {
+	if h[i].at.Equal(h[j].at) {
+		return h[i].line < h[j].line
+	}
+	return h[i].at.Before(h[j].at)
+}
+func (h logRecordHeap) Swap(i, j int) { h[i], h[j] = h[j], h[i] }
+func (h *logRecordHeap) Push(value any) {
+	*h = append(*h, value.(logRecord))
+}
+func (h *logRecordHeap) Pop() any {
+	old := *h
+	value := old[len(old)-1]
+	*h = old[:len(old)-1]
+	return value
+}
+
+type dayRecordStream struct {
+	file    *os.File
+	scanner *bufio.Scanner
+	label   string
+	filter  logFilter
+	record  logRecord
+	err     error
+}
+
+type dayRecordStreamHeap []*dayRecordStream
+
+func (h dayRecordStreamHeap) Len() int { return len(h) }
+func (h dayRecordStreamHeap) Less(i, j int) bool {
+	if h[i].record.at.Equal(h[j].record.at) {
+		return h[i].record.line < h[j].record.line
+	}
+	return h[i].record.at.Before(h[j].record.at)
+}
+func (h dayRecordStreamHeap) Swap(i, j int) { h[i], h[j] = h[j], h[i] }
+func (h *dayRecordStreamHeap) Push(value any) {
+	*h = append(*h, value.(*dayRecordStream))
+}
+func (h *dayRecordStreamHeap) Pop() any {
+	old := *h
+	value := old[len(old)-1]
+	*h = old[:len(old)-1]
+	return value
+}
+
+func newDayRecordStream(path, label string, filter logFilter) (*dayRecordStream, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	return &dayRecordStream{file: file, scanner: scanner, label: label, filter: filter}, nil
+}
+
+func (stream *dayRecordStream) next() bool {
+	for stream.scanner.Scan() {
+		line := stream.scanner.Text()
+		visible := visibleLogText(line)
+		if !matchesLogFilter(visible, stream.filter) {
+			continue
+		}
+		stream.record = logRecord{
+			line: stream.label + "  " + line,
+			at:   internalLineTime(line, time.Time{}),
+		}
+		return true
+	}
+	stream.err = stream.scanner.Err()
+	return false
+}
+
+func closeDayRecordStreams(streams []*dayRecordStream) {
+	for _, stream := range streams {
+		_ = stream.file.Close()
+	}
 }
 
 type lineStats struct {
@@ -677,33 +766,35 @@ func listFiles(day string) ([]LogFile, error) {
 	return stateIndex.filesSnapshot(appNow(), day)
 }
 
-func readDayRecords(day, file string, filter logFilter) ([]logRecord, error) {
-	if file != "" {
-		records, err := scanFileRecords(filepath.Join(logRoot, day, file), filter, day+"/"+file)
-		sortLogRecords(records)
-		return records, err
-	}
-
-	files, err := listFiles(day)
-	if err != nil {
-		return nil, err
-	}
-
-	var records []logRecord
-	for _, f := range files {
-		found, err := scanFileRecords(filepath.Join(logRoot, day, f.Name), filter, day+"/"+f.Name)
-		if err != nil {
-			return records, err
-		}
-		records = append(records, found...)
-	}
-	sortLogRecords(records)
-	return records, nil
-}
-
 func readDayWindow(day, file string, filter logFilter, before, limit int) ([]string, int, int, error) {
-	records, err := readDayRecords(day, file, filter)
-	total := len(records)
+	paths := []string{file}
+	if file == "" {
+		files, err := listFiles(day)
+		if err != nil {
+			return nil, 0, 0, err
+		}
+		paths = make([]string, 0, len(files))
+		for _, candidate := range files {
+			paths = append(paths, candidate.Name)
+		}
+	}
+
+	total := 0
+	if filter.Query == "" && filter.Severity == "" {
+		count, err := stateIndex.dayLineCount(appNow(), day, file)
+		if err != nil {
+			return nil, 0, 0, err
+		}
+		total = count
+	} else {
+		for _, name := range paths {
+			count, err := countFileRecords(filepath.Join(logRoot, day, name), filter)
+			if err != nil {
+				return nil, 0, total, err
+			}
+			total += count
+		}
+	}
 	if limit <= 0 || limit > total {
 		limit = total
 	}
@@ -720,29 +811,62 @@ func readDayWindow(day, file string, filter logFilter, before, limit int) ([]str
 		end = start
 	}
 
-	return recordLines(records[start:end]), start, total, err
+	// rsyslog writes each device file in receive-time order. Merge those ordered
+	// streams so a page retains only its requested chunk instead of every line.
+	streams := make([]*dayRecordStream, 0, len(paths))
+	queue := make(dayRecordStreamHeap, 0, len(paths))
+	for _, name := range paths {
+		stream, err := newDayRecordStream(filepath.Join(logRoot, day, name), day+"/"+name, filter)
+		if err != nil {
+			closeDayRecordStreams(streams)
+			return nil, 0, total, err
+		}
+		streams = append(streams, stream)
+		if stream.next() {
+			queue = append(queue, stream)
+		} else if err := stream.err; err != nil {
+			closeDayRecordStreams(streams)
+			return nil, 0, total, err
+		}
+	}
+	heap.Init(&queue)
+	lines := make([]string, 0, end-start)
+	for position := 0; queue.Len() > 0 && position < end; position++ {
+		stream := heap.Pop(&queue).(*dayRecordStream)
+		if position >= start {
+			lines = append(lines, stream.record.line)
+		}
+		if stream.next() {
+			heap.Push(&queue, stream)
+		} else if err := stream.err; err != nil {
+			closeDayRecordStreams(streams)
+			return nil, 0, total, err
+		}
+	}
+	closeDayRecordStreams(streams)
+	return lines, start, total, nil
 }
 
-func searchAll(query string) ([]string, error) {
+func searchAll(query string) (searchResults, error) {
 	if query == "" {
-		return nil, nil
+		return searchResults{}, nil
 	}
 
 	days, err := listDays()
 	if err != nil {
-		return nil, err
+		return searchResults{}, err
 	}
 	return searchDays(days, query)
 }
 
-func searchRecentDays(query string, limit int) ([]string, error) {
+func searchRecentDays(query string, limit int) (searchResults, error) {
 	if query == "" {
-		return nil, nil
+		return searchResults{}, nil
 	}
 
 	days, err := listDays()
 	if err != nil {
-		return nil, err
+		return searchResults{}, err
 	}
 	if limit > 0 && len(days) > limit {
 		days = days[:limit]
@@ -750,48 +874,64 @@ func searchRecentDays(query string, limit int) ([]string, error) {
 	return searchDays(days, query)
 }
 
-func searchDays(days []Day, query string) ([]string, error) {
-	var records []logRecord
+func searchDays(days []Day, query string) (searchResults, error) {
+	records := make(logRecordHeap, 0, maxSearchResults)
+	heap.Init(&records)
+	limited := false
 	for _, day := range days {
 		files, err := listFiles(day.Name)
 		if err != nil {
-			return recordLines(records), err
+			return searchResults{lines: recordLines(records), limited: limited}, err
 		}
 		for _, file := range files {
 			label := day.Name + "/" + file.Name
 			path := filepath.Join(logRoot, day.Name, file.Name)
-			found, err := scanFileRecords(path, logFilter{Query: query}, label)
+			err := visitFileRecords(path, logFilter{Query: query}, label, func(record logRecord) {
+				if records.Len() < maxSearchResults {
+					heap.Push(&records, record)
+					return
+				}
+				limited = true
+				if records[0].at.Before(record.at) || (records[0].at.Equal(record.at) && records[0].line < record.line) {
+					records[0] = record
+					heap.Fix(&records, 0)
+				}
+			})
 			if err != nil {
-				return recordLines(records), err
+				return searchResults{lines: recordLines(records), limited: limited}, err
 			}
-			records = append(records, found...)
 		}
 	}
-	sortLogRecords(records)
-	return recordLines(records), nil
+	sortLogRecords([]logRecord(records))
+	return searchResults{lines: recordLines([]logRecord(records)), limited: limited}, nil
 }
 
-func scanFileRecords(path string, filter logFilter, label string) ([]logRecord, error) {
+func countFileRecords(path string, filter logFilter) (int, error) {
+	count := 0
+	err := visitFileRecords(path, filter, "", func(logRecord) { count++ })
+	return count, err
+}
+
+func visitFileRecords(path string, filter logFilter, label string, visit func(logRecord)) error {
 	file, err := os.Open(path)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer file.Close()
 
-	var records []logRecord
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for scanner.Scan() {
 		line := scanner.Text()
 		visible := visibleLogText(line)
 		if matchesLogFilter(visible, filter) {
-			records = append(records, logRecord{
+			visit(logRecord{
 				line: label + "  " + line,
 				at:   internalLineTime(line, time.Time{}),
 			})
 		}
 	}
-	return records, scanner.Err()
+	return scanner.Err()
 }
 
 func sortLogRecords(records []logRecord) {

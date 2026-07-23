@@ -11,7 +11,10 @@ import (
 	"time"
 )
 
-const indexRefreshMinInterval = time.Second
+const (
+	indexRefreshMinInterval = time.Second
+	archiveRefreshInterval  = 15 * time.Minute
+)
 
 type indexedLine struct {
 	seq  int64
@@ -34,11 +37,13 @@ type indexedFile struct {
 }
 
 type logIndex struct {
-	mu          sync.Mutex
-	lastRefresh time.Time
-	currentDay  string
-	nextSeq     int64
-	files       map[string]*indexedFile
+	mu              sync.Mutex
+	refreshMu       sync.Mutex
+	lastRefresh     time.Time
+	lastFullRefresh time.Time
+	currentDay      string
+	nextSeq         int64
+	files           map[string]*indexedFile
 }
 
 type discoveredFile struct {
@@ -59,6 +64,9 @@ var stateIndex = &logIndex{
 }
 
 func (idx *logIndex) refresh(now time.Time) error {
+	idx.refreshMu.Lock()
+	defer idx.refreshMu.Unlock()
+
 	today := now.Format("2006/01/02")
 
 	idx.mu.Lock()
@@ -67,13 +75,20 @@ func (idx *logIndex) refresh(now time.Time) error {
 		idx.mu.Unlock()
 		return nil
 	}
+	fullRefresh := rebuildAll || idx.lastFullRefresh.IsZero() || now.Sub(idx.lastFullRefresh) >= archiveRefreshInterval
 	if rebuildAll {
 		idx.files = make(map[string]*indexedFile)
 		idx.nextSeq = 0
 	}
 	idx.mu.Unlock()
 
-	discovered, err := discoverLogFiles()
+	var discovered []discoveredFile
+	var err error
+	if fullRefresh {
+		discovered, err = discoverLogFiles()
+	} else {
+		discovered, err = discoverDayLogFiles(today)
+	}
 	if err != nil {
 		return err
 	}
@@ -91,20 +106,33 @@ func (idx *logIndex) refresh(now time.Time) error {
 	}
 
 	idx.mu.Lock()
-	for path := range idx.files {
+	for path, indexed := range idx.files {
+		if !fullRefresh && indexed.day != today {
+			continue
+		}
 		if _, ok := current[path]; !ok {
 			delete(idx.files, path)
 		}
 	}
 	idx.lastRefresh = now
+	if fullRefresh {
+		idx.lastFullRefresh = now
+	}
 	idx.currentDay = today
 	idx.mu.Unlock()
 	return nil
 }
 
 func (idx *logIndex) refreshFile(file discoveredFile, config appConfig, now time.Time) error {
+	var existing indexedFile
+	var ok bool
 	idx.mu.Lock()
-	existing, ok := idx.files[file.path]
+	if current, exists := idx.files[file.path]; exists {
+		existing = *current
+		existing.tail = append([]indexedLine(nil), current.tail...)
+		existing.criticalTimes = append([]time.Time(nil), current.criticalTimes...)
+		ok = true
+	}
 	idx.mu.Unlock()
 
 	if ok && existing.size == file.size && existing.modTime.Equal(file.modTime) {
@@ -127,7 +155,7 @@ func (idx *logIndex) refreshFile(file discoveredFile, config appConfig, now time
 		base.tailRetained = existing.tailRetained
 		base.tailLimit = existing.tailLimit
 		base.tail = append([]indexedLine(nil), existing.tail...)
-		base.criticalTimes = trimCriticalTimestamps(append([]time.Time(nil), existing.criticalTimes...), now.Add(-5*time.Minute))
+		base.criticalTimes = trimCriticalTimestamps(existing.criticalTimes, now.Add(-5*time.Minute))
 	}
 
 	retainTail := shouldRetainFileTail(file.modTime, config)
@@ -252,6 +280,24 @@ func (idx *logIndex) filesSnapshot(now time.Time, day string) ([]LogFile, error)
 		return files[i].Name < files[j].Name
 	})
 	return files, nil
+}
+
+func (idx *logIndex) dayLineCount(now time.Time, day, name string) (int, error) {
+	if err := idx.refresh(now); err != nil {
+		return 0, err
+	}
+
+	idx.mu.Lock()
+	defer idx.mu.Unlock()
+
+	count := 0
+	for _, file := range idx.files {
+		if file.day != day || (name != "" && file.name != name) {
+			continue
+		}
+		count += file.lineCount
+	}
+	return count, nil
 }
 
 func (idx *logIndex) currentStats(now time.Time) (lineStats, statsSnapshot, error) {
@@ -475,8 +521,23 @@ func (idx *logIndex) dayCursor(now time.Time, day, file string) (int64, error) {
 }
 
 func discoverLogFiles() ([]discoveredFile, error) {
+	return discoverLogFilesFrom(logRoot)
+}
+
+func discoverDayLogFiles(day string) ([]discoveredFile, error) {
+	path := filepath.Join(logRoot, filepath.FromSlash(day))
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return discoverLogFilesFrom(path)
+}
+
+func discoverLogFilesFrom(root string) ([]discoveredFile, error) {
 	var files []discoveredFile
-	err := filepath.WalkDir(logRoot, func(path string, entry fs.DirEntry, err error) error {
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}

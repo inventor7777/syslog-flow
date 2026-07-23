@@ -1289,12 +1289,9 @@ func handleDay(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	days, err := listDays()
-	files, fileErr := listFiles(day)
 	before, beforeErr := parseBeforeOffset(r)
 	since, sinceErr := parseSinceCursor(r)
 	filter := logFilter{Query: query, Severity: severity}
-	lines, start, total, scanErr := readDayWindow(day, file, filter, before, dayChunkSize)
 	if wantsLogPartial(r) {
 		if beforeErr != nil {
 			http.Error(w, beforeErr.Error(), http.StatusBadRequest)
@@ -1311,7 +1308,7 @@ func handleDay(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			if replace {
-				lines, start, total, scanErr = readDayWindow(day, file, filter, before, dayChunkSize)
+				lines, start, total, scanErr := readDayWindow(day, file, filter, before, dayChunkSize)
 				if scanErr != nil {
 					http.Error(w, scanErr.Error(), http.StatusInternalServerError)
 					return
@@ -1332,6 +1329,7 @@ func handleDay(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
+		lines, start, total, scanErr := readDayWindow(day, file, filter, before, dayChunkSize)
 		if scanErr != nil {
 			http.Error(w, scanErr.Error(), http.StatusInternalServerError)
 			return
@@ -1348,6 +1346,10 @@ func handleDay(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+
+	days, err := listDays()
+	files, fileErr := listFiles(day)
+	lines, start, total, scanErr := readDayWindow(day, file, filter, before, dayChunkSize)
 
 	data := PageData{
 		Days:          days,
@@ -1391,20 +1393,23 @@ func handleSearch(w http.ResponseWriter, r *http.Request) {
 
 	scope := strings.TrimSpace(r.URL.Query().Get("scope"))
 	days, err := listDays()
-	lines := []string(nil)
+	results := searchResults{}
 	var scanErr error
 	if scope == "week" {
-		lines, scanErr = searchRecentDays(query, 7)
+		results, scanErr = searchRecentDays(query, 7)
 	} else {
-		lines, scanErr = searchAll(query)
+		results, scanErr = searchAll(query)
 	}
 
 	data := PageData{
 		Days:       days,
 		Query:      query,
-		Lines:      lines,
+		Lines:      results.lines,
 		Global:     true,
-		ResultInfo: resultInfo(len(lines), logFilter{Query: query}),
+		ResultInfo: resultInfo(len(results.lines), logFilter{Query: query}),
+	}
+	if results.limited {
+		data.ResultInfo += " (showing newest results; limit 5,000)"
 	}
 	if err != nil {
 		data.Error = err.Error()
