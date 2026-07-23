@@ -451,6 +451,7 @@ var page = template.Must(template.New("page").Funcs(template.FuncMap{
 <body{{if .Overview}} class="overview-page"{{end}} data-stats-refresh-ms="{{.StatsRefreshMS}}" data-overview-refresh-ms="{{.OverviewRefreshMS}}">
   <header>
     <h1><a href="/">syslog-flow</a></h1>
+    <a class="top-link" href="/settings">Settings</a>
     <a class="top-link" href="/statistics">Statistics</a>
     <button class="top-link active" type="button" data-live-toggle>Live</button>
     {{if or .Lines .Selected}}

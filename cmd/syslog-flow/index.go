@@ -82,27 +82,50 @@ func (idx *logIndex) refresh(now time.Time) error {
 	}
 	idx.mu.Unlock()
 
-	var discovered []discoveredFile
-	var err error
-	if fullRefresh {
-		discovered, err = discoverLogFiles()
-	} else {
-		discovered, err = discoverDayLogFiles(today)
-	}
-	if err != nil {
-		return err
-	}
-
 	config := currentAppConfig()
-	for _, file := range discovered {
-		if err := idx.refreshFile(file, config, now); err != nil {
+	current := make(map[string]struct{})
+	if fullRefresh {
+		days, err := discoverLogDays()
+		if err != nil {
 			return err
 		}
-	}
-
-	current := make(map[string]struct{}, len(discovered))
-	for _, file := range discovered {
-		current[file.path] = struct{}{}
+		for _, day := range days {
+			if day != today {
+				cache, err := readDayCache(day)
+				if err != nil {
+					cache, err = buildDayCache(day, now)
+					if err != nil {
+						return err
+					}
+				}
+				idx.applyDayCache(cache)
+				for _, file := range cache.Files {
+					current[filepath.Join(logRoot, filepath.FromSlash(day), file.Name)] = struct{}{}
+				}
+				continue
+			}
+			files, err := discoverDayLogFiles(day)
+			if err != nil {
+				return err
+			}
+			for _, file := range files {
+				if err := idx.refreshFile(file, config, now); err != nil {
+					return err
+				}
+				current[file.path] = struct{}{}
+			}
+		}
+	} else {
+		files, err := discoverDayLogFiles(today)
+		if err != nil {
+			return err
+		}
+		for _, file := range files {
+			if err := idx.refreshFile(file, config, now); err != nil {
+				return err
+			}
+			current[file.path] = struct{}{}
+		}
 	}
 
 	idx.mu.Lock()
@@ -520,10 +543,6 @@ func (idx *logIndex) dayCursor(now time.Time, day, file string) (int64, error) {
 	return cursor, nil
 }
 
-func discoverLogFiles() ([]discoveredFile, error) {
-	return discoverLogFilesFrom(logRoot)
-}
-
 func discoverDayLogFiles(day string) ([]discoveredFile, error) {
 	path := filepath.Join(logRoot, filepath.FromSlash(day))
 	if _, err := os.Stat(path); err != nil {
@@ -533,6 +552,33 @@ func discoverDayLogFiles(day string) ([]discoveredFile, error) {
 		return nil, err
 	}
 	return discoverLogFilesFrom(path)
+}
+
+func discoverLogDays() ([]string, error) {
+	var days []string
+	err := filepath.WalkDir(logRoot, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !entry.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(logRoot, path)
+		if err != nil || rel == "." {
+			return nil
+		}
+		day := filepath.ToSlash(rel)
+		if !validDayPath(day) {
+			return nil
+		}
+		days = append(days, day)
+		return filepath.SkipDir
+	})
+	if err != nil {
+		return nil, err
+	}
+	sort.Strings(days)
+	return days, nil
 }
 
 func discoverLogFilesFrom(root string) ([]discoveredFile, error) {

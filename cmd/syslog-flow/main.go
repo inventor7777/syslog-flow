@@ -360,6 +360,8 @@ func main() {
 	mux.HandleFunc("/", handleIndex)
 	mux.HandleFunc("/api/overview", handleAPIOverview)
 	mux.HandleFunc("/api/stats", handleAPIStats)
+	mux.HandleFunc("/api/settings/cache-status", handleCacheRefreshStatus)
+	mux.HandleFunc("/settings", handleSettings)
 	mux.HandleFunc("/apple-touch-icon.png", serveAppleTouchIcon)
 	mux.HandleFunc("/statistics", handleOverview)
 	mux.HandleFunc("/day/", handleDay)
@@ -367,7 +369,15 @@ func main() {
 	mux.HandleFunc("/search", handleSearch)
 
 	log.Printf("syslog-flow listening on %s", addr)
-	log.Fatal(http.ListenAndServe(addr, mux))
+	server := &http.Server{
+		Addr:              addr,
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      2 * time.Minute,
+		IdleTimeout:       60 * time.Second,
+	}
+	log.Fatal(server.ListenAndServe())
 }
 
 func dashboardData(days []Day) (DashboardData, error) {
@@ -1118,6 +1128,22 @@ func loadDeviceColors() (deviceColorSet, error) {
 		return deviceColorSet{}, err
 	}
 
+	set, err := parseDeviceColors(data)
+	if err != nil {
+		return deviceColorSet{}, err
+	}
+
+	colorCache.Lock()
+	colorCache.deviceColorConfig = deviceColorConfig{
+		modTime: info.ModTime(),
+		set:     set,
+	}
+	colorCache.Unlock()
+
+	return set, nil
+}
+
+func parseDeviceColors(data []byte) (deviceColorSet, error) {
 	set := deviceColorSet{
 		Exact: make(map[string]string),
 	}
@@ -1159,14 +1185,6 @@ func loadDeviceColors() (deviceColorSet, error) {
 			}
 		}
 	}
-
-	colorCache.Lock()
-	colorCache.deviceColorConfig = deviceColorConfig{
-		modTime: info.ModTime(),
-		set:     set,
-	}
-	colorCache.Unlock()
-
 	return set, nil
 }
 
@@ -1192,20 +1210,9 @@ func loadStatusColors() (map[string]string, error) {
 		return nil, err
 	}
 
-	raw := make(map[string]string)
-	if len(strings.TrimSpace(string(data))) > 0 {
-		if err := json.Unmarshal(data, &raw); err != nil {
-			return nil, err
-		}
-	}
-
-	colors := make(map[string]string, len(raw))
-	for severity, color := range raw {
-		if normalizedSeverity, ok := normalizeSeverityName(severity); ok {
-			if normalizedColor, ok := normalizeHexColor(color); ok {
-				colors[normalizedSeverity] = normalizedColor
-			}
-		}
+	colors, err := parseStatusColors(data)
+	if err != nil {
+		return nil, err
 	}
 
 	statusCache.Lock()
@@ -1215,6 +1222,24 @@ func loadStatusColors() (map[string]string, error) {
 	}
 	statusCache.Unlock()
 
+	return colors, nil
+}
+
+func parseStatusColors(data []byte) (map[string]string, error) {
+	raw := make(map[string]string)
+	if len(strings.TrimSpace(string(data))) > 0 {
+		if err := json.Unmarshal(data, &raw); err != nil {
+			return nil, err
+		}
+	}
+	colors := make(map[string]string, len(raw))
+	for severity, color := range raw {
+		if normalizedSeverity, ok := normalizeSeverityName(severity); ok {
+			if normalizedColor, ok := normalizeHexColor(color); ok {
+				colors[normalizedSeverity] = normalizedColor
+			}
+		}
+	}
 	return colors, nil
 }
 
@@ -1245,16 +1270,9 @@ func loadInterfaceColors() (interfaceColorsFile, error) {
 		return defaults, err
 	}
 
-	raw := interfaceColorsFile{}
-	if len(strings.TrimSpace(string(data))) > 0 {
-		if err := json.Unmarshal(data, &raw); err != nil {
-			return defaults, err
-		}
-	}
-
-	colors := interfaceColorsFile{
-		Light: mergeInterfaceTheme(defaults.Light, raw.Light),
-		Dark:  mergeInterfaceTheme(defaults.Dark, raw.Dark),
+	colors, err := parseInterfaceColors(data)
+	if err != nil {
+		return defaults, err
 	}
 
 	interfaceColorCache.Lock()
@@ -1266,6 +1284,20 @@ func loadInterfaceColors() (interfaceColorsFile, error) {
 	interfaceColorCache.Unlock()
 
 	return colors, nil
+}
+
+func parseInterfaceColors(data []byte) (interfaceColorsFile, error) {
+	defaults := defaultInterfaceColorsFile()
+	raw := interfaceColorsFile{}
+	if len(strings.TrimSpace(string(data))) > 0 {
+		if err := json.Unmarshal(data, &raw); err != nil {
+			return defaults, err
+		}
+	}
+	return interfaceColorsFile{
+		Light: mergeInterfaceTheme(defaults.Light, raw.Light),
+		Dark:  mergeInterfaceTheme(defaults.Dark, raw.Dark),
+	}, nil
 }
 
 func mergeInterfaceTheme(defaults, overrides map[string]string) map[string]string {
@@ -1398,11 +1430,9 @@ func loadAppConfig() (appConfig, error) {
 		return defaults, err
 	}
 
-	config := defaults
-	if len(strings.TrimSpace(string(data))) > 0 {
-		if err := json.Unmarshal(data, &config); err != nil {
-			return defaults, err
-		}
+	config, err := parseAppConfig(data)
+	if err != nil {
+		return defaults, err
 	}
 
 	config.modTime = info.ModTime()
@@ -1416,6 +1446,17 @@ func loadAppConfig() (appConfig, error) {
 	appConfigCache.appConfig = config
 	appConfigCache.Unlock()
 
+	return config, nil
+}
+
+func parseAppConfig(data []byte) (appConfig, error) {
+	defaults := defaultAppConfig()
+	config := defaults
+	if len(strings.TrimSpace(string(data))) > 0 {
+		if err := json.Unmarshal(data, &config); err != nil {
+			return defaults, err
+		}
+	}
 	return config, nil
 }
 

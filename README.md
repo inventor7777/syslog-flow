@@ -101,6 +101,7 @@ docker compose up --build -d
 ## Notes
 
 - Logs are stored as plain text only. There is no database.
+- Completed log days keep a small JSON summary beside their `.log` files, such as `logs/2026/05/05/2026-05-05.json`. Missing or unusable summaries are rebuilt on startup; valid existing summaries are only refreshed from Settings.
 - `entrypoint.sh` keeps `rsyslogd` and the web process running together and stops the container if either one exits.
 - Basic mobile support is available! To keep it light, I did not implement features like collapsible sidebar, but I did test on iPhones of various sizes and added Jump to Top/Bottom buttons, among other things.
 - PRs, issues, and discussions are welcome! However, please keep in mind that this exists to be extremely lightweight. If you need advanced features *(e.g authentication, multi-user support, Grafana)*, feel free to fork the repo and develop a custom version.
@@ -127,6 +128,8 @@ Generated files:
 - `config/device-colors.json`
 - `config/interface-colors.json`
 - `config/status-colors.json`
+
+The web UI also includes **Settings**, where these existing JSON files can be edited directly. Its **JSON Caches** section shows cache coverage by month and can refresh a completed month in the background.
 
 ### app.json
 
