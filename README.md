@@ -4,30 +4,35 @@
 <p align="center"><b>An awesome, lightweight plaintext syslog server with a responsive and clean web UI.</b>
 </p>
 
-<p align="center">Plain-text logs. No database. No observability stack. Just your logs and a sweet web UI.
+<p align="center">Plain-text logs. No database. No observability stack. Just your logs, JSON caches, and a sweet web UI.
 </p>
 
 ![banner](banner.png)
 
-I wanted an easy and light logging server that does not require an observability stack. I kept seeing the option to send syslogs to a server on all sorts of random devices, and I decided that centralized logging sounded like an exceptional feature to have. However, when I explored the available options, I was shocked to see how overly complicated they were. I have a relatively small homelab and I just wanted logs, not an overly complex observability stack. So I created this ~140KB *(not including built container itself)* Docker container that is simple, self contained, and only has 1 dependency.
+I wanted an easy and light logging server that does not require an observability stack. I kept seeing the option to send syslogs to a server on all sorts of random devices, and I decided that centralized logging sounded like an exceptional feature to have. However, when I explored the available options, I was shocked to see how overly complicated they were. I have a relatively small homelab and I just wanted logs, not an overly complex observability stack. So I created this ~190KB *(not including built container itself)* Docker container that is simple, self contained, and only has 1 dependency.
 
 <details>
 <summary>Actual repository size (without marketing assets)</summary>
 
 ```text
 4	syslog-flow/Dockerfile
+4	syslog-flow/cmd/syslog-flow/cache_test.go
 4	syslog-flow/cmd/syslog-flow/logviewer.go
+4	syslog-flow/cmd/syslog-flow/main_test.go
+4	syslog-flow/cmd/syslog-flow/settings_test.go
 4	syslog-flow/docker-compose.yml
 4	syslog-flow/entrypoint.sh
 4	syslog-flow/go.mod
 4	syslog-flow/rsyslog.conf
+8	syslog-flow/cmd/syslog-flow/cache.go
 8	syslog-flow/cmd/syslog-flow/config_generator.go
-12	syslog-flow/cmd/syslog-flow/index.go
-32	syslog-flow/cmd/syslog-flow/main.go
+16	syslog-flow/cmd/syslog-flow/index.go
+20	syslog-flow/cmd/syslog-flow/settings.go
+36	syslog-flow/cmd/syslog-flow/main.go
 52	syslog-flow/cmd/syslog-flow/web.go
-112	syslog-flow/cmd/syslog-flow
-116	syslog-flow/cmd
-140	syslog-flow
+160	syslog-flow/cmd/syslog-flow
+164	syslog-flow/cmd
+188	syslog-flow
 ```
 
 </details>
@@ -49,6 +54,7 @@ The `syslog-flow` container runs two processes:
 - Supports day views, per-file views, global search, and severity filters
 - Shows simple statistics and live device activity at '/statistics`
 - Exposes a simple numeric stats API at `GET /api/stats`
+- Caches key information in per-day JSON files for super fast startup and API
 
 Example log layout on-disk:
 
@@ -60,6 +66,7 @@ logs/
         router.log
         nas.log
         homeassistant.log
+        2026-05-01.json
 ```
 
 ## Build and Install
@@ -158,8 +165,8 @@ Optional per-device heading colors in the UI:
 ```json
 {
   "exact": {
-    "router": "#00B4FF",
-    "switch": "#EB8C00"
+    "OPNsense": "#00B4FF",
+    "TrueNAS": "#EB8C00"
   },
   "contains": [
     {
