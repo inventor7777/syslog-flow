@@ -452,7 +452,7 @@ var page = template.Must(template.New("page").Funcs(template.FuncMap{
   <header>
     <h1><a href="/">syslog-flow</a></h1>
     <a class="top-link" href="/settings">Settings</a>
-    <a class="top-link" href="/statistics">Statistics</a>
+    <a class="top-link {{if .Overview}}active{{end}}" href="/statistics">Statistics</a>
     <button class="top-link active" type="button" data-live-toggle>Live</button>
     {{if or .Lines .Selected}}
       <div class="jump-controls">
@@ -1077,6 +1077,9 @@ var page = template.Must(template.New("page").Funcs(template.FuncMap{
     }
 
     setInterval(async () => {
+      if (!liveEnabled) {
+        return;
+      }
       try {
         const response = await fetch("/?partial=stats&format=json", { cache: "no-store" });
         if (!response.ok) {
@@ -1095,6 +1098,9 @@ var page = template.Must(template.New("page").Funcs(template.FuncMap{
 
     if (overviewDevices) {
       setInterval(async () => {
+        if (!liveEnabled) {
+          return;
+        }
         try {
           const response = await fetch("/api/overview", { cache: "no-store" });
           if (!response.ok) {
