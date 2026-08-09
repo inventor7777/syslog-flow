@@ -435,8 +435,7 @@ var page = template.Must(template.New("page").Funcs(template.FuncMap{
         padding-right: 0.15rem;
       }
     }
-    @media (max-width: 760px) {
-      body { overflow: auto; }
+    @media (max-width: 920px) {
       header { align-items: center; flex-direction: row; flex-wrap: wrap; }
       .jump-controls {
         display: flex;
@@ -455,6 +454,9 @@ var page = template.Must(template.New("page").Funcs(template.FuncMap{
         overflow-x: auto;
         width: 100%;
       }
+    }
+    @media (max-width: 760px) {
+      body { overflow: auto; }
       .stats-grid { grid-template-columns: 1fr; }
       .device-list { grid-template-columns: 1fr; }
       .device-row {
