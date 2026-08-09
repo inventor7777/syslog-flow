@@ -427,7 +427,7 @@ var page = template.Must(template.New("page").Funcs(template.FuncMap{
       border-radius: 0.55rem;
       margin-bottom: 1rem;
     }
-    @media (max-width: 1194px) and (min-width: 761px) {
+    @media (max-height: 850px) {
       .files {
         align-content: flex-start;
         max-height: 5.9rem;
