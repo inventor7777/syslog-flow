@@ -102,11 +102,6 @@ type deviceRecord struct {
 	mod   time.Time
 }
 
-type recentRecord struct {
-	line string
-	at   time.Time
-}
-
 type logRecord struct {
 	line string
 	at   time.Time
@@ -199,24 +194,9 @@ func closeDayRecordStreams(streams []*dayRecordStream) {
 	}
 }
 
-type lineStats struct {
-	critical5m     int
-	todayDay       string
-	todayLines     int
-	allLines       int
-	linesPerSecond float64
-	expires        time.Time
-}
-
 type lineSample struct {
 	at       time.Time
 	allLines int
-}
-
-type criticalWindowState struct {
-	modTime    time.Time
-	size       int64
-	timestamps []time.Time
 }
 
 type logPayload struct {
@@ -292,14 +272,6 @@ type appConfig struct {
 	StatsTailMaxAgeHours   int `json:"stats_tail_max_age_hours"`
 }
 
-type fileSummary struct {
-	modTime   time.Time
-	size      int64
-	lineCount int
-	tail      []string
-	tailLimit int
-}
-
 type storedLogLine struct {
 	visible string
 	ingest  time.Time
@@ -307,15 +279,7 @@ type storedLogLine struct {
 
 var statsCache struct {
 	sync.Mutex
-	lineStats
 	samples []lineSample
-}
-
-var fileCache = struct {
-	sync.Mutex
-	files map[string]fileSummary
-}{
-	files: make(map[string]fileSummary),
 }
 
 var colorCache struct {
@@ -336,13 +300,6 @@ var interfaceColorCache struct {
 var appConfigCache struct {
 	sync.Mutex
 	appConfig
-}
-
-var criticalCache = struct {
-	sync.Mutex
-	files map[string]criticalWindowState
-}{
-	files: make(map[string]criticalWindowState),
 }
 
 func main() {
@@ -384,14 +341,6 @@ func dashboardData(days []Day) (DashboardData, error) {
 	return stateIndex.dashboard(appNow())
 }
 
-func liveLines(days []Day, limit int) ([]string, error) {
-	window, err := stateIndex.liveWindow(appNow(), limit)
-	if err != nil {
-		return nil, err
-	}
-	return window.lines, nil
-}
-
 func addStats(r *http.Request, data *PageData) {
 	snapshot, err := buildStatsSnapshot(data.Days)
 	if err != nil && data.Error == "" {
@@ -409,8 +358,7 @@ func addStats(r *http.Request, data *PageData) {
 }
 
 func buildStatsSnapshot(days []Day) (statsSnapshot, error) {
-	_, snapshot, err := stateIndex.currentStats(appNow())
-	return snapshot, err
+	return stateIndex.currentStats(appNow())
 }
 
 func applyStatsSnapshot(data *PageData, snapshot statsSnapshot) {
@@ -455,130 +403,11 @@ func overviewPayloadFromData(snapshot statsSnapshot, dashboard DashboardData) ov
 	return payload
 }
 
-func deviceCount(days []Day) int {
-	devices := make(map[string]struct{})
-	for _, day := range days {
-		for _, file := range day.Files {
-			devices[strings.TrimSuffix(file.Name, ".log")] = struct{}{}
-		}
-	}
-	return len(devices)
-}
-
-func totalLogBytes(days []Day) int64 {
-	var total int64
-	for _, day := range days {
-		for _, file := range day.Files {
-			total += file.Size
-		}
-	}
-	return total
-}
-
 func deviceDayLink(day, device string) string {
 	values := url.Values{
 		"file": []string{device + ".log"},
 	}
 	return "/day/" + day + "?" + values.Encode()
-}
-
-func currentLineStats() (lineStats, error) {
-	now := appNow()
-	today := now.Format("2006/01/02")
-	refreshInterval := time.Duration(currentAppConfig().StatsRefreshSeconds) * time.Second
-
-	statsCache.Lock()
-	cached := statsCache.lineStats
-	if now.Before(cached.expires) && cached.todayDay == today {
-		statsCache.Unlock()
-		return cached, nil
-	}
-	statsCache.Unlock()
-
-	stats, err := countLineStats(today)
-	stats.linesPerSecond = updateLineRate(now, stats.allLines)
-	stats.expires = now.Add(refreshInterval)
-	stats.todayDay = today
-
-	statsCache.Lock()
-	statsCache.lineStats = stats
-	statsCache.Unlock()
-
-	return stats, err
-}
-
-func countLineStats(today string) (lineStats, error) {
-	stats, _, err := stateIndex.currentStats(appNow())
-	stats.todayDay = today
-	return stats, err
-}
-
-func countCriticalSince(path string, cutoff time.Time) (int, error) {
-	info, err := os.Stat(path)
-	if err != nil {
-		return 0, err
-	}
-
-	criticalCache.Lock()
-	cached, ok := criticalCache.files[path]
-	criticalCache.Unlock()
-
-	if ok && cached.size == info.Size() && cached.modTime.Equal(info.ModTime()) {
-		trimmed := trimCriticalTimestamps(cached.timestamps, cutoff)
-		cached.timestamps = trimmed
-		criticalCache.Lock()
-		criticalCache.files[path] = cached
-		criticalCache.Unlock()
-		return len(trimmed), nil
-	}
-
-	var startOffset int64
-	timestamps := make([]time.Time, 0)
-	if ok && info.Size() >= cached.size && info.ModTime().After(cached.modTime) {
-		startOffset = cached.size
-		timestamps = trimCriticalTimestamps(cached.timestamps, cutoff)
-	}
-
-	file, err := os.Open(path)
-	if err != nil {
-		return 0, err
-	}
-	defer file.Close()
-
-	if startOffset > 0 {
-		if _, err := file.Seek(startOffset, 0); err != nil {
-			return 0, err
-		}
-	}
-
-	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if line == "" {
-			continue
-		}
-		at := internalLineTime(line, time.Time{})
-		if at.Before(cutoff) {
-			continue
-		}
-		if isCriticalSeverity(line) {
-			timestamps = append(timestamps, at)
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		return 0, err
-	}
-
-	timestamps = trimCriticalTimestamps(timestamps, cutoff)
-	criticalCache.Lock()
-	criticalCache.files[path] = criticalWindowState{
-		modTime:    info.ModTime(),
-		size:       info.Size(),
-		timestamps: timestamps,
-	}
-	criticalCache.Unlock()
-	return len(timestamps), nil
 }
 
 func trimCriticalTimestamps(values []time.Time, cutoff time.Time) []time.Time {
@@ -644,68 +473,6 @@ func updateLineRate(now time.Time, allLines int) float64 {
 	return float64(delta) / seconds
 }
 
-func summarizeFile(path string, tailLimit int) (fileSummary, error) {
-	info, err := os.Stat(path)
-	if err != nil {
-		return fileSummary{}, err
-	}
-
-	retainTail := shouldRetainFileTail(info.ModTime(), currentAppConfig())
-
-	fileCache.Lock()
-	cached, ok := fileCache.files[path]
-	fileCache.Unlock()
-
-	if ok && cached.size == info.Size() && cached.modTime.Equal(info.ModTime()) && cached.tailLimit >= tailLimit {
-		return sliceSummaryTail(cached, tailLimit), nil
-	}
-
-	file, err := os.Open(path)
-	if err != nil {
-		return fileSummary{}, err
-	}
-	defer file.Close()
-
-	summary := fileSummary{
-		modTime:   info.ModTime(),
-		size:      info.Size(),
-		tailLimit: tailLimit,
-	}
-
-	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	for scanner.Scan() {
-		summary.lineCount++
-		if tailLimit == 0 {
-			continue
-		}
-		line := scanner.Text()
-		if line == "" {
-			continue
-		}
-		summary.tail = append(summary.tail, line)
-		if len(summary.tail) > tailLimit {
-			copy(summary.tail, summary.tail[1:])
-			summary.tail = summary.tail[:tailLimit]
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		return fileSummary{}, err
-	}
-
-	returned := summary
-	if !retainTail {
-		summary.tail = nil
-		summary.tailLimit = 0
-	}
-
-	fileCache.Lock()
-	fileCache.files[path] = summary
-	fileCache.Unlock()
-
-	return sliceSummaryTail(returned, tailLimit), nil
-}
-
 func shouldRetainFileTail(modTime time.Time, config appConfig) bool {
 	maxAge := time.Duration(config.StatsTailMaxAgeHours) * time.Hour
 	if maxAge <= 0 {
@@ -713,17 +480,6 @@ func shouldRetainFileTail(modTime time.Time, config appConfig) bool {
 	}
 	cutoff := appNow().Add(-maxAge)
 	return modTime.After(cutoff) || modTime.Equal(cutoff)
-}
-
-func sliceSummaryTail(summary fileSummary, tailLimit int) fileSummary {
-	if tailLimit <= 0 || len(summary.tail) <= tailLimit {
-		return summary
-	}
-
-	trimmed := summary
-	trimmed.tail = append([]string(nil), summary.tail[len(summary.tail)-tailLimit:]...)
-	trimmed.tailLimit = tailLimit
-	return trimmed
 }
 
 func parseStoredLogLine(line string) storedLogLine {
@@ -777,6 +533,19 @@ func listFiles(day string) ([]LogFile, error) {
 }
 
 func readDayWindow(day, file string, filter logFilter, before, limit int) ([]string, int, int, error) {
+	if filter.Query == "" && filter.Severity == "" && before < 0 {
+		now := appNow()
+		if day == now.Format("2006/01/02") {
+			window, complete, err := stateIndex.dayTailWindow(now, day, file, limit)
+			if err != nil {
+				return nil, 0, 0, err
+			}
+			if complete {
+				return window.lines, window.start, window.total, nil
+			}
+		}
+	}
+
 	paths := []string{file}
 	if file == "" {
 		files, err := listFiles(day)

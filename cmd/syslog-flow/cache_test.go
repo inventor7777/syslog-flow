@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -49,5 +50,27 @@ func TestApplyDayCacheReplacesOnlyTheCachedDay(t *testing.T) {
 		if file.day == "2026/05/04" && (file.name != "router.log" || file.lineCount != 7) {
 			t.Fatalf("cached entry = %#v", file)
 		}
+	}
+}
+
+func TestDayTailWindowUsesNewestIndexedLines(t *testing.T) {
+	now := appNow()
+	index := &logIndex{
+		lastRefresh: now,
+		files: map[string]*indexedFile{
+			"router": {day: "2026/08/09", name: "router.log", lineCount: 2, tail: []indexedLine{{seq: 1, text: "one", at: now.Add(-2 * time.Second)}, {seq: 3, text: "three", at: now}}},
+			"switch": {day: "2026/08/09", name: "switch.log", lineCount: 2, tail: []indexedLine{{seq: 2, text: "two", at: now.Add(-time.Second)}, {seq: 4, text: "four", at: now.Add(time.Second)}}},
+		},
+	}
+
+	window, complete, err := index.dayTailWindow(now, "2026/08/09", "", 2)
+	if err != nil || !complete {
+		t.Fatalf("day tail window = %#v, complete=%t, err=%v", window, complete, err)
+	}
+	if window.start != 2 || window.total != 4 || window.cursor != 4 {
+		t.Fatalf("window metadata = %#v", window)
+	}
+	if got, want := window.lines, []string{"three", "four"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("window lines = %q, want %q", got, want)
 	}
 }

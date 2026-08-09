@@ -57,6 +57,8 @@ type discoveredFile struct {
 type indexDayWindow struct {
 	lines  []string
 	cursor int64
+	start  int
+	total  int
 }
 
 var stateIndex = &logIndex{
@@ -323,9 +325,9 @@ func (idx *logIndex) dayLineCount(now time.Time, day, name string) (int, error) 
 	return count, nil
 }
 
-func (idx *logIndex) currentStats(now time.Time) (lineStats, statsSnapshot, error) {
+func (idx *logIndex) currentStats(now time.Time) (statsSnapshot, error) {
 	if err := idx.refresh(now); err != nil {
-		return lineStats{}, statsSnapshot{}, err
+		return statsSnapshot{}, err
 	}
 
 	today := now.Format("2006/01/02")
@@ -334,33 +336,28 @@ func (idx *logIndex) currentStats(now time.Time) (lineStats, statsSnapshot, erro
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
 
-	stats := lineStats{todayDay: today}
 	snapshot := statsSnapshot{}
 	days := make(map[string]struct{})
 	devices := make(map[string]struct{})
 
 	for _, file := range idx.files {
-		stats.allLines += file.lineCount
+		snapshot.allLines += file.lineCount
 		snapshot.totalLogSize += file.size
 		days[file.day] = struct{}{}
 		devices[strings.TrimSuffix(file.name, ".log")] = struct{}{}
 		if file.day == today {
-			stats.todayLines += file.lineCount
+			snapshot.todayLines += file.lineCount
 		}
 
 		trimmed := trimCriticalTimestamps(file.criticalTimes, cutoff)
 		file.criticalTimes = trimmed
-		stats.critical5m += len(trimmed)
+		snapshot.critical5m += len(trimmed)
 	}
 
-	stats.linesPerSecond = updateLineRate(now, stats.allLines)
-	snapshot.critical5m = stats.critical5m
-	snapshot.todayLines = stats.todayLines
-	snapshot.allLines = stats.allLines
-	snapshot.linesPerSecond = stats.linesPerSecond
+	snapshot.linesPerSecond = updateLineRate(now, snapshot.allLines)
 	snapshot.dayCount = len(days)
 	snapshot.deviceCount = len(devices)
-	return stats, snapshot, nil
+	return snapshot, nil
 }
 
 func (idx *logIndex) dashboard(now time.Time) (DashboardData, error) {
@@ -454,6 +451,47 @@ func (idx *logIndex) liveWindow(now time.Time, limit int) (indexDayWindow, error
 		lines = append(lines, record.text)
 	}
 	return indexDayWindow{lines: lines, cursor: cursor}, nil
+}
+
+func (idx *logIndex) dayTailWindow(now time.Time, day, name string, limit int) (indexDayWindow, bool, error) {
+	if err := idx.refresh(now); err != nil {
+		return indexDayWindow{}, false, err
+	}
+
+	idx.mu.Lock()
+	defer idx.mu.Unlock()
+
+	var records []indexedLine
+	var cursor int64
+	total := 0
+	for _, file := range idx.files {
+		if file.day != day || (name != "" && file.name != name) {
+			continue
+		}
+		total += file.lineCount
+		records = append(records, file.tail...)
+		if len(file.tail) > 0 && file.tail[len(file.tail)-1].seq > cursor {
+			cursor = file.tail[len(file.tail)-1].seq
+		}
+	}
+	if limit <= 0 || limit > total {
+		limit = total
+	}
+	if len(records) < limit {
+		return indexDayWindow{}, false, nil
+	}
+
+	sort.Slice(records, func(i, j int) bool {
+		return records[i].at.Before(records[j].at)
+	})
+	if len(records) > limit {
+		records = records[len(records)-limit:]
+	}
+	lines := make([]string, 0, len(records))
+	for _, record := range records {
+		lines = append(lines, record.text)
+	}
+	return indexDayWindow{lines: lines, cursor: cursor, start: total - len(lines), total: total}, true, nil
 }
 
 func (idx *logIndex) dayAppends(now time.Time, day, file string, filter logFilter, since int64) ([]string, int64, bool, error) {

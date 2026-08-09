@@ -205,6 +205,8 @@ var page = template.Must(template.New("page").Funcs(template.FuncMap{
       height: 1.45rem;
       width: 1.45rem;
     }
+    .search-form button[value="all"] { order: 1; }
+    .search-form button[value="week"] { order: 2; }
     input {
       min-width: min(28rem, 100%);
       flex: 1;
@@ -225,6 +227,26 @@ var page = template.Must(template.New("page").Funcs(template.FuncMap{
       cursor: pointer;
       box-shadow: var(--glow-soft);
     }
+    form button.loading {
+      color: transparent;
+      cursor: wait;
+      pointer-events: none;
+      position: relative;
+    }
+    form button.loading svg { visibility: hidden; }
+    form button.loading::after {
+      animation: spin 0.7s linear infinite;
+      border: 2px solid rgba(255, 255, 255, 0.9);
+      border-right-color: transparent;
+      border-radius: 50%;
+      content: "";
+      height: 0.9rem;
+      inset: 0;
+      margin: auto;
+      position: absolute;
+      width: 0.9rem;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
     .panel {
       display: flex;
       flex-direction: column;
@@ -472,16 +494,17 @@ var page = template.Must(template.New("page").Funcs(template.FuncMap{
   <div class="layout">
     {{if not .Overview}}
       <aside>
-        <form class="search-form" action="/search" method="get">
+        <form class="search-form" action="/search" method="get" data-loading-submit>
           <input name="q" value="{{.Query}}" placeholder="Global Search">
-          <button type="submit" name="scope" value="all" aria-label="Search all logs" title="Search all logs">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.44,13.73L14.71,14H15.5L20.5,19L19,20.5L14,15.5V14.71L13.73,14.44C12.59,15.41 11.11,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3M9.5,5C7,5 5,7 5,9.5C5,12 7,14 9.5,14C12,14 14,12 14,9.5C14,7 12,5 9.5,5Z"/>
-            </svg>
-          </button>
+          <input type="hidden" name="scope" value="week">
           <button type="submit" name="scope" value="week" aria-label="Search last 7 days" title="Search last 7 days">
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <path d="M15.5,12C18,12 20,14 20,16.5C20,17.38 19.75,18.21 19.31,18.9L22.39,22L21,23.39L17.88,20.32C17.19,20.75 16.37,21 15.5,21C13,21 11,19 11,16.5C11,14 13,12 15.5,12M15.5,14A2.5,2.5 0 0,0 13,16.5A2.5,2.5 0 0,0 15.5,19A2.5,2.5 0 0,0 18,16.5A2.5,2.5 0 0,0 15.5,14M19,8H5V19H9.5C9.81,19.75 10.26,20.42 10.81,21H5C3.89,21 3,20.1 3,19V5C3,3.89 3.89,3 5,3H6V1H8V3H16V1H18V3H19A2,2 0 0,1 21,5V13.03C20.5,12.22 19.8,11.54 19,11V8Z"/>
+            </svg>
+          </button>
+          <button type="submit" name="scope" value="all" aria-label="Search all logs" title="Search all logs">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.44,13.73L14.71,14H15.5L20.5,19L19,20.5L14,15.5V14.71L13.73,14.44C12.59,15.41 11.11,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3M9.5,5C7,5 5,7 5,9.5C5,12 7,14 9.5,14C12,14 14,12 14,9.5C14,7 12,5 9.5,5Z"/>
             </svg>
           </button>
         </form>
@@ -582,7 +605,7 @@ var page = template.Must(template.New("page").Funcs(template.FuncMap{
         {{end}}
 
         {{if and .Selected (not .Global)}}
-          <form action="/day/{{.Selected}}" method="get">
+          <form action="/day/{{.Selected}}" method="get" data-loading-submit>
             {{if .File}}<input type="hidden" name="file" value="{{.File}}">{{end}}
             {{if .Severity}}<input type="hidden" name="level" value="{{.Severity}}">{{end}}
             <input name="q" value="{{.Query}}" placeholder="Filter this day{{if .File}} / file{{end}}">
@@ -645,6 +668,23 @@ var page = template.Must(template.New("page").Funcs(template.FuncMap{
         } catch {
           label.textContent = "Copy failed";
           setTimeout(() => { label.textContent = original; }, 1200);
+        }
+      });
+    }
+
+    let navigationPending = false;
+    for (const form of document.querySelectorAll("[data-loading-submit]")) {
+      form.addEventListener("submit", event => {
+        if (form.dataset.submitting === "true") {
+          event.preventDefault();
+          return;
+        }
+        form.dataset.submitting = "true";
+        navigationPending = true;
+        const button = event.submitter || form.querySelector("button[type=submit]");
+        if (button) {
+          button.classList.add("loading");
+          button.setAttribute("aria-busy", "true");
         }
       });
     }
@@ -1023,7 +1063,7 @@ var page = template.Must(template.New("page").Funcs(template.FuncMap{
       });
 
       setInterval(async () => {
-        if (!liveEnabled) {
+        if (!liveEnabled || navigationPending) {
           return;
         }
         if (hasViewerSelection()) {
@@ -1077,7 +1117,7 @@ var page = template.Must(template.New("page").Funcs(template.FuncMap{
     }
 
     setInterval(async () => {
-      if (!liveEnabled) {
+      if (!liveEnabled || navigationPending) {
         return;
       }
       try {
@@ -1098,7 +1138,7 @@ var page = template.Must(template.New("page").Funcs(template.FuncMap{
 
     if (overviewDevices) {
       setInterval(async () => {
-        if (!liveEnabled) {
+        if (!liveEnabled || navigationPending) {
           return;
         }
         try {
@@ -1398,7 +1438,11 @@ func handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	scope := strings.TrimSpace(r.URL.Query().Get("scope"))
+	scopes := r.URL.Query()["scope"]
+	scope := ""
+	if len(scopes) > 0 {
+		scope = strings.TrimSpace(scopes[len(scopes)-1])
+	}
 	days, err := listDays()
 	results := searchResults{}
 	var scanErr error
