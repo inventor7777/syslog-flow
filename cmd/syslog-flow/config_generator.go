@@ -103,8 +103,8 @@ func defaultStatusColors() map[string]string {
 		"err":     "#FF9100",
 		"warning": "#FFD166",
 		"notice":  "#7BDFF2",
-		"info":    "#9AA89F",
-		"debug":   "#8E9AAF",
+		"info":    "#A4AFA9",
+		"debug":   "#747C8C",
 	}
 }
 
