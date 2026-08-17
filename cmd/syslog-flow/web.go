@@ -19,6 +19,7 @@ var page = template.Must(template.New("page").Funcs(template.FuncMap{
 	"interfaceTheme":   interfaceThemeDeclarations,
 	"statusColor":      statusColor,
 	"statusColorsJSON": statusColorsJSON,
+	"topBarStyles":     topBarStyles,
 }).Parse(`<!doctype html>
 <html lang="en">
 <head>
@@ -48,24 +49,7 @@ var page = template.Must(template.New("page").Funcs(template.FuncMap{
     body.overview-page {
       overflow: auto;
     }
-    header {
-      align-items: center;
-      border-bottom: 1px solid var(--line);
-      display: flex;
-      gap: 1rem;
-      padding: 1rem 1.25rem;
-      background: var(--panel-strong);
-      backdrop-filter: blur(8px);
-      position: sticky;
-      top: 0;
-      z-index: 2;
-    }
-    h1 { margin: 0; font-size: 1.1rem; letter-spacing: 0.03em; }
-    h1 a {
-      color: var(--ink);
-      text-decoration: none;
-    }
-    h1 a:hover { color: var(--accent-strong); text-decoration: none; }
+    {{topBarStyles}}
     .top-stats {
       align-items: center;
       display: flex;
@@ -73,30 +57,6 @@ var page = template.Must(template.New("page").Funcs(template.FuncMap{
       justify-content: flex-end;
       margin-left: auto;
       min-width: 0;
-    }
-    .top-link {
-      align-items: center;
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 999px;
-      box-shadow: var(--glow-soft);
-      color: var(--ink);
-      display: inline-flex;
-      font-size: 0.82rem;
-      font-weight: 700;
-      padding: 0.32rem 0.7rem;
-      text-decoration: none;
-      white-space: nowrap;
-    }
-    .top-link:hover {
-      border-color: var(--accent);
-      color: var(--accent-strong);
-      text-decoration: none;
-    }
-    .top-link.active {
-      background: var(--active-bg);
-      border-color: var(--accent);
-      color: var(--active-ink);
     }
     .jump-controls {
       display: none;

@@ -32,6 +32,18 @@ const (
 
 var appLocation = loadAppLocation()
 
+func topBarStyles() template.CSS {
+	return template.CSS(`
+    header { align-items: center; background: var(--panel-strong); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); display: flex; gap: 1rem; min-height: 64px; padding: 1rem 1.25rem; position: sticky; top: 0; z-index: 2; }
+    h1 { font-size: 1.1rem; letter-spacing: 0.03em; margin: 0; }
+    h1 a { color: var(--ink); text-decoration: none; }
+    h1 a:hover { color: var(--accent-strong); text-decoration: none; }
+    .top-link { align-items: center; background: var(--panel); border: 1px solid var(--line); border-radius: 999px; box-shadow: var(--glow-soft); color: var(--ink); display: inline-flex; font-size: 0.82rem; font-weight: 700; padding: 0.32rem 0.7rem; text-decoration: none; white-space: nowrap; }
+    .top-link:hover { border-color: var(--accent); color: var(--accent-strong); text-decoration: none; }
+    .top-link.active { background: var(--active-bg); border-color: var(--accent); color: var(--active-ink); }
+`)
+}
+
 type Day struct {
 	Name  string
 	Files []LogFile

@@ -2,9 +2,31 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 )
+
+func defaultSettingsJSON(section string) ([]byte, error) {
+	var value any
+	switch section {
+	case "system":
+		value = defaultAppConfigFile()
+	case "device-colors":
+		value = defaultDeviceColorsFile()
+	case "status-colors":
+		value = defaultStatusColors()
+	case "interface-theme":
+		value = defaultInterfaceColorsFile()
+	default:
+		return nil, fmt.Errorf("unknown settings section %q", section)
+	}
+	data, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	return append(data, '\n'), nil
+}
 
 func ensureConfigFiles() error {
 	if err := os.MkdirAll(filepath.Dir(appConfigPath), 0o755); err != nil {

@@ -1,11 +1,26 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestDefaultSettingsJSONUsesConfigGeneratorDefaults(t *testing.T) {
+	data, err := defaultSettingsJSON("status-colors")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var colors map[string]string
+	if err := json.Unmarshal(data, &colors); err != nil {
+		t.Fatal(err)
+	}
+	if colors["info"] != "#A4AFA9" || colors["debug"] != "#747C8C" {
+		t.Fatalf("status defaults = %#v", colors)
+	}
+}
 
 func TestFormatSettingsJSON(t *testing.T) {
 	formatted, err := formatSettingsJSON(`{"live_refresh_seconds":2}`)

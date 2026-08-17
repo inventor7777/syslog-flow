@@ -56,6 +56,7 @@ var settingsCSRFToken = newSettingsCSRFToken()
 
 var settingsPage = template.Must(template.New("settings").Funcs(template.FuncMap{
 	"interfaceTheme": interfaceThemeDeclarations,
+	"topBarStyles":   topBarStyles,
 }).Parse(`<!doctype html>
 <html lang="en">
 <head>
@@ -68,13 +69,9 @@ var settingsPage = template.Must(template.New("settings").Funcs(template.FuncMap
     @media (prefers-color-scheme: dark) { :root { {{interfaceTheme "dark"}} } }
     * { box-sizing: border-box; }
     body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.45 ui-sans-serif, "Aptos", "Segoe UI", sans-serif; }
-    header { align-items: center; background: var(--panel-strong); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); display: flex; gap: 1rem; min-height: 64px; padding: 1rem 1.25rem; position: sticky; top: 0; z-index: 2; }
-    h1 { font-size: 1.1rem; letter-spacing: 0.03em; margin: 0; }
+    {{topBarStyles}}
     a { color: var(--accent-strong); text-decoration: none; }
     a:hover { text-decoration: underline; }
-    h1 a { color: var(--ink); }
-    .top-link { align-items: center; background: var(--panel); border: 1px solid var(--line); border-radius: 999px; box-shadow: var(--glow-soft); color: var(--ink); display: inline-flex; font-size: 0.82rem; font-weight: 700; padding: 0.32rem 0.7rem; text-decoration: none; white-space: nowrap; }
-    .top-link.active { background: var(--active-bg); border-color: var(--accent); color: var(--active-ink); }
     .layout { display: grid; grid-template-columns: 15rem minmax(0, 1fr); margin: 0 auto; max-width: 72rem; min-height: calc(100vh - 3.8rem); }
     aside { background: var(--panel-soft); border-right: 1px solid var(--line); padding: 1rem; }
     main { max-width: 54rem; padding: 1.5rem; }
@@ -93,6 +90,9 @@ var settingsPage = template.Must(template.New("settings").Funcs(template.FuncMap
     .error { background: var(--error-bg); border-color: var(--error-line); color: var(--error-ink); }
     .cache-month { align-items: center; background: var(--panel); border: 1px solid var(--line); border-radius: 0.65rem; display: flex; gap: 0.8rem; justify-content: space-between; margin: 0.6rem 0; padding: 0.75rem 0.85rem; }
     .cache-month button { margin: 0; }
+    .settings-actions { display: flex; justify-content: space-between; }
+    .settings-actions button { margin-top: 0.85rem; }
+    .reset-button { background: var(--muted); }
     @media (max-width: 700px) { header { flex-wrap: wrap; } .layout { grid-template-columns: 1fr; } aside { border-bottom: 1px solid var(--line); border-right: 0; } main { padding: 1rem; } }
   </style>
 </head>
@@ -126,7 +126,10 @@ var settingsPage = template.Must(template.New("settings").Funcs(template.FuncMap
         <input type="hidden" name="section" value="{{.Section.ID}}">
         <input type="hidden" name="csrf" value="{{.CSRF}}">
         <textarea name="value" spellcheck="false" aria-label="{{.Section.Title}} JSON">{{.Value}}</textarea>
-        <button class="save-button" type="submit">Save {{.Section.Title}}</button>
+        <div class="settings-actions">
+          <button class="save-button" type="submit">Save {{.Section.Title}}</button>
+          <button class="reset-button" type="submit" name="action" value="reset">Reset to Defaults</button>
+        </div>
       </form>
       {{end}}
     </main>
@@ -166,14 +169,17 @@ var settingsPage = template.Must(template.New("settings").Funcs(template.FuncMap
       form.addEventListener("submit", async event => {
         event.preventDefault();
         if (form.dataset.submitting === "true") return;
+        if (event.submitter?.value === "reset" && !window.confirm("Reset this file to its default settings?")) return;
         form.dataset.submitting = "true";
-        const button = form.querySelector("button[type=submit]");
+        const button = event.submitter || form.querySelector("button[type=submit]");
         const originalLabel = button.textContent;
         const body = new URLSearchParams();
         for (const [name, value] of new FormData(form).entries()) {
           body.append(name, value);
         }
-        setButtonState(button, form.matches("[data-cache-form]") ? "Starting…" : "Saving…", "loading");
+        if (button.name) body.append(button.name, button.value);
+        const resetting = button.value === "reset";
+        setButtonState(button, form.matches("[data-cache-form]") ? "Starting…" : resetting ? "Resetting…" : "Saving…", "loading");
         try {
           const response = await fetch(form.getAttribute("action") || window.location.pathname, {
             method: "POST",
@@ -188,8 +194,12 @@ var settingsPage = template.Must(template.New("settings").Funcs(template.FuncMap
               setButtonState(button, error.message, "failure");
             });
           } else {
-            setButtonState(button, "Saved ✓", "success");
+            setButtonState(button, resetting ? "Reset ✓" : "Saved ✓", "success");
             window.setTimeout(() => {
+              if (resetting) {
+                window.location.reload();
+                return;
+              }
               form.dataset.submitting = "";
               setButtonState(button, originalLabel, "idle");
             }, 1600);
@@ -261,6 +271,18 @@ func handleSettingsSave(w http.ResponseWriter, r *http.Request) {
 	}
 
 	value := r.Form.Get("value")
+	if action := r.Form.Get("action"); action != "" {
+		if action != "reset" {
+			writeSettingsError(w, r, http.StatusBadRequest, "invalid settings action")
+			return
+		}
+		defaults, err := defaultSettingsJSON(section.ID)
+		if err != nil {
+			writeSettingsError(w, r, http.StatusInternalServerError, err.Error())
+			return
+		}
+		value = string(defaults)
+	}
 	formatted, err := formatSettingsJSON(value)
 	if err != nil {
 		if wantsSettingsJSON(r) {
