@@ -107,3 +107,12 @@ func TestTopDaySummariesReturnsBusiestDays(t *testing.T) {
 		t.Fatalf("top days = %q", names)
 	}
 }
+
+func TestClampHomepageLines(t *testing.T) {
+	if got := clampHomepageLines(0, 200); got != 200 {
+		t.Fatalf("zero homepage lines = %d", got)
+	}
+	if got := clampHomepageLines(6000, 200); got != 5000 {
+		t.Fatalf("large homepage lines = %d", got)
+	}
+}

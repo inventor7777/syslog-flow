@@ -115,6 +115,7 @@ func defaultAppConfigFile() map[string]int {
 		"stats_tail_lines":         defaults.StatsTailLines,
 		"stats_tail_max_age_hours": defaults.StatsTailMaxAgeHours,
 		"top_days_count":           defaults.TopDaysCount,
+		"homepage_lines":           defaults.HomepageLines,
 	}
 }
 

@@ -292,6 +292,7 @@ type appConfig struct {
 	StatsTailLines         int `json:"stats_tail_lines"`
 	StatsTailMaxAgeHours   int `json:"stats_tail_max_age_hours"`
 	TopDaysCount           int `json:"top_days_count"`
+	HomepageLines          int `json:"homepage_lines"`
 }
 
 type storedLogLine struct {
@@ -1215,11 +1216,12 @@ func currentAppConfig() appConfig {
 func defaultAppConfig() appConfig {
 	return appConfig{
 		LiveRefreshSeconds:     2,
-		StatsRefreshSeconds:    10,
-		OverviewRefreshSeconds: 10,
+		StatsRefreshSeconds:    5,
+		OverviewRefreshSeconds: 5,
 		StatsTailLines:         2000,
 		StatsTailMaxAgeHours:   24,
 		TopDaysCount:           5,
+		HomepageLines:          300,
 	}
 }
 
@@ -1238,7 +1240,7 @@ func loadAppConfig() (appConfig, error) {
 	cached := appConfigCache.appConfig
 	appConfigCache.Unlock()
 
-	if cached.LiveRefreshSeconds > 0 && cached.StatsRefreshSeconds > 0 && cached.OverviewRefreshSeconds > 0 && cached.StatsTailLines > 0 && cached.StatsTailMaxAgeHours > 0 && cached.TopDaysCount > 0 && cached.modTime.Equal(info.ModTime()) {
+	if cached.LiveRefreshSeconds > 0 && cached.StatsRefreshSeconds > 0 && cached.OverviewRefreshSeconds > 0 && cached.StatsTailLines > 0 && cached.StatsTailMaxAgeHours > 0 && cached.TopDaysCount > 0 && cached.HomepageLines > 0 && cached.modTime.Equal(info.ModTime()) {
 		return cached, nil
 	}
 
@@ -1259,6 +1261,7 @@ func loadAppConfig() (appConfig, error) {
 	config.StatsTailLines = clampStatsTailLines(config.StatsTailLines, defaults.StatsTailLines)
 	config.StatsTailMaxAgeHours = clampStatsTailMaxAgeHours(config.StatsTailMaxAgeHours, defaults.StatsTailMaxAgeHours)
 	config.TopDaysCount = clampTopDaysCount(config.TopDaysCount, defaults.TopDaysCount)
+	config.HomepageLines = clampHomepageLines(config.HomepageLines, defaults.HomepageLines)
 
 	appConfigCache.Lock()
 	appConfigCache.appConfig = config
@@ -1314,6 +1317,16 @@ func clampTopDaysCount(value, fallback int) int {
 	}
 	if value > 100 {
 		return 100
+	}
+	return value
+}
+
+func clampHomepageLines(value, fallback int) int {
+	if value < 1 {
+		return fallback
+	}
+	if value > 5000 {
+		return 5000
 	}
 	return value
 }

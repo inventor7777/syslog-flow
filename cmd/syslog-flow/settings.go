@@ -45,7 +45,7 @@ func (sections settingsSectionList) selected(id string) settingsSection {
 }
 
 var settingsSections = settingsSectionList{
-	{ID: "system", Title: "System", Description: "Refresh intervals, in-memory tail limits, and the Top Days count from app.json.", Path: appConfigPath},
+	{ID: "system", Title: "System", Description: "Refresh intervals, homepage lines, in-memory tail limits, and the Top Days count from app.json.", Path: appConfigPath},
 	{ID: "device-colors", Title: "Device Colors", Description: "Optional exact and contains rules from device-colors.json.", Path: deviceColorPath},
 	{ID: "status-colors", Title: "Status Colors", Description: "Syslog severity colors from status-colors.json.", Path: statusColorPath},
 	{ID: "interface-theme", Title: "Interface Theme", Description: "Light and dark interface colors from interface-colors.json.", Path: interfaceColorPath},

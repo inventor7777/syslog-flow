@@ -1189,7 +1189,7 @@ func handleIndex(w http.ResponseWriter, r *http.Request) {
 		data.Error = err.Error()
 	}
 	if len(days) > 0 {
-		window, windowErr := stateIndex.liveWindow(appNow(), 200)
+		window, windowErr := stateIndex.liveWindow(appNow(), currentAppConfig().HomepageLines)
 		lines := window.lines
 		liveErr := windowErr
 		if liveErr != nil && data.Error == "" {
