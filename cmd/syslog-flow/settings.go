@@ -72,7 +72,7 @@ var settingsPage = template.Must(template.New("settings").Funcs(template.FuncMap
     {{topBarStyles}}
     a { color: var(--accent-strong); text-decoration: none; }
     a:hover { text-decoration: underline; }
-    .layout { display: grid; grid-template-columns: 15rem minmax(0, 1fr); margin: 0 auto; max-width: 72rem; min-height: calc(100vh - 3.8rem); }
+    .layout { display: grid; grid-template-columns: 15rem minmax(0, 1fr); margin: 0 auto; max-width: 72rem; min-height: calc(100vh - 4rem); }
     aside { background: var(--panel-soft); border-right: 1px solid var(--line); padding: 1rem; }
     main { max-width: 54rem; padding: 1.5rem; }
     .section-link { border-radius: 0.55rem; color: var(--ink); display: block; font-weight: 650; margin-bottom: 0.25rem; padding: 0.55rem 0.65rem; }
