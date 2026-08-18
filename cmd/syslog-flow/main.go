@@ -1217,7 +1217,7 @@ func defaultAppConfig() appConfig {
 		LiveRefreshSeconds:     2,
 		StatsRefreshSeconds:    10,
 		OverviewRefreshSeconds: 10,
-		StatsTailLines:         1024,
+		StatsTailLines:         2000,
 		StatsTailMaxAgeHours:   24,
 		TopDaysCount:           5,
 	}
