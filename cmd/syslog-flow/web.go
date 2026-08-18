@@ -279,6 +279,22 @@ var page = template.Must(template.New("page").Funcs(template.FuncMap{
     .device-list.overview {
       grid-template-columns: 1fr;
     }
+    .summary-pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+    .summary-pill {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      box-shadow: var(--glow-soft);
+      color: var(--ink);
+      padding: 0.4rem 0.65rem;
+      text-decoration: none;
+    }
+    .summary-pill:hover { border-color: var(--accent); text-decoration: none; }
+    .summary-pill span { color: var(--muted); }
     .device-row {
       align-items: center;
       background: var(--panel);
@@ -484,7 +500,7 @@ var page = template.Must(template.New("page").Funcs(template.FuncMap{
         {{if .Global}}
           <h2>Global Search</h2>
         {{else if .Selected}}
-          <h2>{{.Selected}}</h2>
+          <h2>{{.Selected}}{{if .DaySummary}} - {{.DaySummary}}{{end}}</h2>
         {{else if .Overview}}
           <h2>Statistics</h2>
         {{else if not .Live}}
@@ -517,6 +533,14 @@ var page = template.Must(template.New("page").Funcs(template.FuncMap{
                     <span class="stat-tile-value" data-overview-value="dayCount">{{.DayCount}}</span>
                     <span class="stat-tile-note">days with stored logs</span>
                   </div>
+                </div>
+              </div>
+              <div class="dashboard-section">
+                <h3>Top Days</h3>
+                <div class="summary-pills">
+                  {{range .TopDays}}
+                    <a class="summary-pill" href="{{.Link}}">{{.Name}} <span>- {{.Lines}} lines</span></a>
+                  {{end}}
                 </div>
               </div>
               <div class="dashboard-section">
@@ -1205,6 +1229,7 @@ func handleOverview(w http.ResponseWriter, r *http.Request) {
 		data.DayCount = dashboard.DayCount
 		data.DeviceCount = dashboard.DeviceCount
 		data.Devices = dashboard.Devices
+		data.TopDays = dashboard.TopDays
 	}
 	render(w, r, data)
 }
@@ -1372,6 +1397,11 @@ func handleDay(w http.ResponseWriter, r *http.Request) {
 		ChunkStart:    start,
 		TotalLogLines: total,
 		HasOlder:      start > 0,
+	}
+	if dayLines, summaryErr := stateIndex.dayLineCount(appNow(), day, ""); summaryErr == nil {
+		data.DaySummary = daySummary(files, dayLines)
+	} else if data.Error == "" {
+		data.Error = summaryErr.Error()
 	}
 	if cursor, cursorErr := stateIndex.dayCursor(appNow(), day, file); cursorErr == nil {
 		data.RefreshCursor = cursor

@@ -57,6 +57,7 @@ type LogFile struct {
 type PageData struct {
 	Days              []Day
 	Selected          string
+	DaySummary        string
 	Files             []LogFile
 	File              string
 	Query             string
@@ -86,6 +87,7 @@ type PageData struct {
 	DayCount          string
 	DeviceCount       string
 	Devices           []DeviceSummary
+	TopDays           []DaySummary
 	RecentLines       []string
 }
 
@@ -100,11 +102,18 @@ type DeviceSummary struct {
 	Color    string
 }
 
+type DaySummary struct {
+	Name  string
+	Lines string
+	Link  string
+}
+
 type DashboardData struct {
 	LatestDay   string
 	DayCount    string
 	DeviceCount string
 	Devices     []DeviceSummary
+	TopDays     []DaySummary
 }
 
 type deviceRecord struct {
@@ -282,6 +291,7 @@ type appConfig struct {
 	OverviewRefreshSeconds int `json:"overview_refresh_seconds"`
 	StatsTailLines         int `json:"stats_tail_lines"`
 	StatsTailMaxAgeHours   int `json:"stats_tail_max_age_hours"`
+	TopDaysCount           int `json:"top_days_count"`
 }
 
 type storedLogLine struct {
@@ -793,6 +803,31 @@ func formatBytes(size int64) string {
 	return strconv.FormatFloat(value, 'f', decimals, 64) + suffix
 }
 
+func daySummary(files []LogFile, lines int) string {
+	var size int64
+	for _, file := range files {
+		size += file.Size
+	}
+	return formatInt(lines) + " lines - " + formatBytes(size)
+}
+
+func topDaySummaries(counts map[string]int, limit int) []DaySummary {
+	values := make([]DaySummary, 0, len(counts))
+	for day, lines := range counts {
+		values = append(values, DaySummary{Name: day, Lines: formatInt(lines), Link: "/day/" + day})
+	}
+	sort.Slice(values, func(i, j int) bool {
+		if counts[values[i].Name] == counts[values[j].Name] {
+			return values[i].Name > values[j].Name
+		}
+		return counts[values[i].Name] > counts[values[j].Name]
+	})
+	if len(values) > limit {
+		values = values[:limit]
+	}
+	return values
+}
+
 func formatSeen(t time.Time) string {
 	now := appNow()
 	seen := t.In(appLocation)
@@ -1184,6 +1219,7 @@ func defaultAppConfig() appConfig {
 		OverviewRefreshSeconds: 10,
 		StatsTailLines:         1024,
 		StatsTailMaxAgeHours:   24,
+		TopDaysCount:           5,
 	}
 }
 
@@ -1202,7 +1238,7 @@ func loadAppConfig() (appConfig, error) {
 	cached := appConfigCache.appConfig
 	appConfigCache.Unlock()
 
-	if cached.LiveRefreshSeconds > 0 && cached.StatsRefreshSeconds > 0 && cached.OverviewRefreshSeconds > 0 && cached.StatsTailLines > 0 && cached.StatsTailMaxAgeHours > 0 && cached.modTime.Equal(info.ModTime()) {
+	if cached.LiveRefreshSeconds > 0 && cached.StatsRefreshSeconds > 0 && cached.OverviewRefreshSeconds > 0 && cached.StatsTailLines > 0 && cached.StatsTailMaxAgeHours > 0 && cached.TopDaysCount > 0 && cached.modTime.Equal(info.ModTime()) {
 		return cached, nil
 	}
 
@@ -1222,6 +1258,7 @@ func loadAppConfig() (appConfig, error) {
 	config.OverviewRefreshSeconds = clampRefreshSeconds(config.OverviewRefreshSeconds, defaults.OverviewRefreshSeconds)
 	config.StatsTailLines = clampStatsTailLines(config.StatsTailLines, defaults.StatsTailLines)
 	config.StatsTailMaxAgeHours = clampStatsTailMaxAgeHours(config.StatsTailMaxAgeHours, defaults.StatsTailMaxAgeHours)
+	config.TopDaysCount = clampTopDaysCount(config.TopDaysCount, defaults.TopDaysCount)
 
 	appConfigCache.Lock()
 	appConfigCache.appConfig = config
@@ -1267,6 +1304,16 @@ func clampStatsTailMaxAgeHours(value, fallback int) int {
 	}
 	if value > 24*365 {
 		return 24 * 365
+	}
+	return value
+}
+
+func clampTopDaysCount(value, fallback int) int {
+	if value < 1 {
+		return fallback
+	}
+	if value > 100 {
+		return 100
 	}
 	return value
 }

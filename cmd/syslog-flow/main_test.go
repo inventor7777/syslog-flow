@@ -86,3 +86,24 @@ func TestLogRecordHeapKeepsNewestRecords(t *testing.T) {
 		t.Fatalf("bounded records = %q", got)
 	}
 }
+
+func TestDaySummaryUsesAllFiles(t *testing.T) {
+	files := []LogFile{{Name: "router.log", Size: 10 * 1024 * 1024}, {Name: "switch.log", Size: 2 * 1024 * 1024}}
+	if got, want := daySummary(files, 68859), "68,859 lines - 12.0MB"; got != want {
+		t.Fatalf("day summary = %q, want %q", got, want)
+	}
+}
+
+func TestTopDaySummariesReturnsBusiestDays(t *testing.T) {
+	got := topDaySummaries(map[string]int{
+		"2026/05/01": 2,
+		"2026/05/02": 9,
+		"2026/05/03": 6,
+		"2026/05/04": 8,
+		"2026/05/05": 3,
+		"2026/05/06": 7,
+	}, 5)
+	if names := []string{got[0].Name, got[1].Name, got[2].Name, got[3].Name, got[4].Name}; !reflect.DeepEqual(names, []string{"2026/05/02", "2026/05/04", "2026/05/06", "2026/05/03", "2026/05/05"}) {
+		t.Fatalf("top days = %q", names)
+	}
+}

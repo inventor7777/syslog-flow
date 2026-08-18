@@ -364,6 +364,7 @@ func (idx *logIndex) dashboard(now time.Time) (DashboardData, error) {
 	if err := idx.refresh(now); err != nil {
 		return DashboardData{}, err
 	}
+	topDaysCount := currentAppConfig().TopDaysCount
 
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
@@ -375,8 +376,10 @@ func (idx *logIndex) dashboard(now time.Time) (DashboardData, error) {
 	latestDay := ""
 	devices := make(map[string]deviceRecord)
 	daySet := make(map[string]struct{})
+	dayLines := make(map[string]int)
 	for _, file := range idx.files {
 		daySet[file.day] = struct{}{}
+		dayLines[file.day] += file.lineCount
 		if latestDay == "" || file.day > latestDay {
 			latestDay = file.day
 		}
@@ -396,6 +399,7 @@ func (idx *logIndex) dashboard(now time.Time) (DashboardData, error) {
 		LatestDay:   latestDay,
 		DayCount:    formatInt(len(daySet)),
 		DeviceCount: formatInt(len(devices)),
+		TopDays:     topDaySummaries(dayLines, topDaysCount),
 	}
 
 	records := make([]deviceRecord, 0, len(devices))
