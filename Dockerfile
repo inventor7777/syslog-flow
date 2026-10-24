@@ -14,7 +14,8 @@ RUN apk add --no-cache rsyslog ca-certificates
 
 COPY --from=build /out/syslog-flow /usr/local/bin/syslog-flow
 COPY rsyslog.conf /etc/rsyslog.conf
-COPY --chmod=0755 entrypoint.sh /entrypoint.sh
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod 755 /entrypoint.sh
 COPY resources /resources
 
 VOLUME ["/logs", "/config", "/var/spool/rsyslog"]
