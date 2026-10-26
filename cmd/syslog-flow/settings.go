@@ -71,6 +71,7 @@ var settingsCSRFToken = newSettingsCSRFToken()
 var settingsPage = template.Must(template.New("settings").Funcs(template.FuncMap{
 	"interfaceTheme": interfaceThemeDeclarations,
 	"topBarStyles":   topBarStyles,
+	"join":           strings.Join,
 }).Parse(`<!doctype html>
 <html lang="en">
 <head>

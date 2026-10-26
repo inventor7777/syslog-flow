@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -28,7 +29,10 @@ type actionRule struct {
 	ID              string            `json:"id"`
 	Name            string            `json:"name"`
 	Enabled         bool              `json:"enabled"`
-	Device          string            `json:"device,omitempty"`
+	Device          string            `json:"device,omitempty"` // Legacy single-device rules are normalized when loaded.
+	DeviceMode      string            `json:"device_mode,omitempty"`
+	Devices         []string          `json:"devices,omitempty"`
+	ContainsMode    string            `json:"contains_mode,omitempty"`
 	Contains        string            `json:"contains,omitempty"`
 	Severities      []string          `json:"severities"`
 	CooldownSeconds int               `json:"cooldown_seconds"`
@@ -101,6 +105,25 @@ func parseActionsConfig(data []byte) (actionsConfig, error) {
 		rule.Name = strings.TrimSpace(rule.Name)
 		rule.Device = strings.TrimSpace(rule.Device)
 		rule.URL = strings.TrimSpace(rule.URL)
+		if rule.DeviceMode == "" {
+			rule.DeviceMode = "include"
+		}
+		if rule.DeviceMode != "include" && rule.DeviceMode != "exclude" {
+			return config, fmt.Errorf("Choose Include or Exclude for %s", rule.Name)
+		}
+		if rule.ContainsMode == "" {
+			rule.ContainsMode = "include"
+		}
+		if rule.ContainsMode != "include" && rule.ContainsMode != "exclude" {
+			return config, fmt.Errorf("Choose Include or Exclude for the message filter in %s", rule.Name)
+		}
+		if rule.Device != "" {
+			if len(rule.Devices) > 0 || rule.DeviceMode == "exclude" {
+				return config, fmt.Errorf("Use devices instead of the legacy device field for %s", rule.Name)
+			}
+			rule.Devices = []string{rule.Device}
+			rule.Device = ""
+		}
 		if !validName(rule.ID) || seen[rule.ID] {
 			return config, fmt.Errorf("Each action needs a unique ID")
 		}
@@ -108,8 +131,14 @@ func parseActionsConfig(data []byte) (actionsConfig, error) {
 		if rule.Name == "" || len(rule.Name) > 100 {
 			return config, fmt.Errorf("Action names must contain 1–100 characters")
 		}
-		if rule.Device != "" && !validName(rule.Device) {
-			return config, fmt.Errorf("Invalid device name for %s", rule.Name)
+		devices := make(map[string]bool, len(rule.Devices))
+		for j, device := range rule.Devices {
+			device = strings.TrimSpace(device)
+			if !validName(device) || devices[device] {
+				return config, fmt.Errorf("Device names must be valid and unique for %s", rule.Name)
+			}
+			rule.Devices[j] = device
+			devices[device] = true
 		}
 		if len(rule.Contains) > 1024 {
 			return config, fmt.Errorf("Message condition is too long for %s", rule.Name)
@@ -254,8 +283,17 @@ func (engine *actionEngine) saveLocked(config actionsConfig) error {
 }
 
 func (rule actionRule) matches(event actionEvent) bool {
-	if !rule.Enabled || (rule.Device != "" && rule.Device != event.Device) {
+	if !rule.Enabled {
 		return false
+	}
+	if len(rule.Devices) > 0 {
+		deviceMatch := slices.Contains(rule.Devices, event.Device)
+		if rule.DeviceMode == "exclude" {
+			deviceMatch = !deviceMatch
+		}
+		if !deviceMatch {
+			return false
+		}
 	}
 	levelMatch := false
 	for _, level := range rule.Severities {
@@ -264,7 +302,22 @@ func (rule actionRule) matches(event actionEvent) bool {
 			break
 		}
 	}
-	return levelMatch && (rule.Contains == "" || strings.Contains(strings.ToLower(event.Message), strings.ToLower(rule.Contains)))
+	if !levelMatch || rule.Contains == "" {
+		return levelMatch
+	}
+	message := strings.ToLower(event.Message)
+	hasPhrases := false
+	for _, phrase := range strings.Split(rule.Contains, "\n") {
+		phrase = strings.TrimSuffix(phrase, "\r")
+		if strings.TrimSpace(phrase) == "" {
+			continue
+		}
+		hasPhrases = true
+		if strings.Contains(message, strings.ToLower(phrase)) {
+			return rule.ContainsMode != "exclude"
+		}
+	}
+	return !hasPhrases || rule.ContainsMode == "exclude"
 }
 
 func (engine *actionEngine) active() bool {
@@ -339,9 +392,9 @@ func (engine *actionEngine) test(id string) error {
 	defer engine.mu.Unlock()
 	for _, rule := range engine.config.Rules {
 		if rule.ID == id {
-			device := rule.Device
-			if device == "" {
-				device = "syslog-flow"
+			device := "syslog-flow"
+			if rule.DeviceMode != "exclude" && len(rule.Devices) > 0 {
+				device = rule.Devices[0]
 			}
 			now := appNow()
 			event := actionEvent{Device: device, Severity: rule.Severities[0], Timestamp: now, ReportedAt: now.Format(time.RFC3339), Message: "Test notification from syslog-flow", Raw: "Test notification from syslog-flow", Test: true}

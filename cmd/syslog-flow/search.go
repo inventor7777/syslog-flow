@@ -120,7 +120,7 @@ const searchDialogTemplate = `
       </div>
       {{if .Global}}{{if .File}}<input type="hidden" name="file" value="{{.File}}">{{end}}{{if .Severity}}<input type="hidden" name="level" value="{{.Severity}}">{{end}}{{end}}
     </div>
-    <div class="search-dialog-footer"><button type="button" class="search-cancel" data-close-search>Cancel</button><button type="submit">Search</button></div>
+    <div class="search-dialog-footer"><button type="submit">Search</button></div>
   </form>
 </dialog>
 <script>
@@ -128,10 +128,6 @@ const searchDialogTemplate = `
   const dialog = document.getElementById("search-dialog");
   document.querySelectorAll("[data-open-search]").forEach(button => button.addEventListener("click", () => dialog.showModal()));
   dialog.querySelectorAll("[data-close-search]").forEach(button => button.addEventListener("click", () => dialog.close()));
-  dialog.addEventListener("click", event => {
-    const rect = dialog.getBoundingClientRect();
-    if (event.target === dialog && (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom)) dialog.close();
-  });
   const start = document.getElementById("search-start");
   const end = document.getElementById("search-end");
   const validateDates = () => end.setCustomValidity(start.value && end.value && start.value > end.value ? "Choose an end date on or after the start date." : "");

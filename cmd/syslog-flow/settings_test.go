@@ -3,10 +3,21 @@ package main
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestFormDialogsIgnoreOutsideClicks(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is needed for dialog interaction checks")
+	}
+	if output, err := exec.Command(node, "testdata/dialogs_test.cjs").CombinedOutput(); err != nil {
+		t.Fatalf("dialog interaction checks: %v\n%s", err, output)
+	}
+}
 
 func TestDefaultSettingsJSONUsesConfigGeneratorDefaults(t *testing.T) {
 	data, err := defaultSettingsJSON("status-colors")

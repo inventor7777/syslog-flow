@@ -28,7 +28,7 @@ func populateActionsSettings(data *settingsData) {
 	actions.mu.Lock()
 	encoded, _ := json.Marshal(actions.config.Rules)
 	data.ActionRulesJSON = template.JS(encoded)
-	data.ActionDraft = actionRule{Enabled: true, Severities: []string{"emerg", "alert", "crit", "err"}, CooldownSeconds: 300, Type: "shoutrrr"}
+	data.ActionDraft = actionRule{Enabled: true, DeviceMode: "include", ContainsMode: "include", Severities: []string{"emerg", "alert", "crit", "err"}, CooldownSeconds: 300, Type: "shoutrrr"}
 	for _, rule := range actions.config.Rules {
 		data.ActionRules = append(data.ActionRules, actionRuleView{actionRule: rule, Status: actions.statuses[rule.ID]})
 		if rule.ID == data.EditAction {
@@ -82,6 +82,13 @@ func handleActionsSave(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		rule = actionRule{ID: id, Name: r.Form.Get("name"), Enabled: r.Form.Get("enabled") == "on", Device: r.Form.Get("device"), Contains: r.Form.Get("contains"), Severities: r.Form["severities"], CooldownSeconds: cooldown, Type: r.Form.Get("type"), URL: r.Form.Get("url")}
+		rule.DeviceMode = r.Form.Get("device_mode")
+		rule.ContainsMode = r.Form.Get("contains_mode")
+		for _, device := range strings.Split(r.Form.Get("devices"), "\n") {
+			if device = strings.TrimSpace(device); device != "" {
+				rule.Devices = append(rule.Devices, device)
+			}
+		}
 		switch r.Form.Get("payload_mode") {
 		case "", "log":
 		case "custom":
@@ -177,6 +184,7 @@ const actionsSettingsTemplate = `
  .action-card {background:var(--panel);border:1px solid var(--line);border-radius:.75rem;margin:1rem 0;padding:1.1rem 1.25rem;}
  .action-card-head {align-items:flex-start;} .action-card h3 {margin:0;font-size:1rem;overflow-wrap:anywhere;} .action-card p {margin:.6rem 0;overflow-wrap:anywhere;}
  .action-card .action-status {font-size:.85rem;color:var(--muted);padding-top:.75rem;border-top:1px solid var(--line);}
+ .action-card .action-contains {white-space:pre-line;}
  .action-buttons {flex-wrap:wrap;margin-top:.9rem;} .action-buttons form,.action-card-head form {margin:0;} .action-buttons button {margin:0;}
  .action-secondary {background:var(--panel);color:var(--ink);border:1px solid var(--line);box-shadow:none;} .action-danger {background:transparent;color:var(--error-ink);border:1px solid var(--error-line);box-shadow:none;}
  .action-switch-label {white-space:nowrap;font-size:.88rem;cursor:pointer;}
@@ -200,6 +208,7 @@ const actionsSettingsTemplate = `
  .action-field input:focus,.action-field select:focus,.action-field textarea:focus {outline:2px solid var(--accent);outline-offset:1px;}
  .action-field small {color:var(--muted);font-size:.8rem;} .action-field textarea {min-height:5rem;font:13px/1.5 ui-monospace,monospace;}
  .action-field-grid {display:grid;grid-template-columns:1fr 1fr;gap:1rem;} .action-field-grid .action-field {margin:0;}
+ .action-device-suggestions {background:var(--panel);border:1px solid var(--line);border-radius:.4rem;max-height:9rem;overflow-y:auto;padding:.25rem;} .action-device-suggestions[hidden],.action-device-suggestions button[hidden] {display:none;} .action-device-suggestions button {display:block;text-align:left;width:100%;border:0;border-radius:.25rem;padding:.45rem .65rem;} .action-device-suggestions button:hover {background:var(--active-bg);color:var(--active-ink);}
  .action-url-label button {font-size:.8rem;padding:.1rem .3rem;background:transparent;color:var(--accent-strong);box-shadow:none;}
  .severity-field {padding:0;border:0;margin:1.2rem 0 0;min-width:0;} .severity-field legend {padding:0;margin-bottom:.6rem;}
  .severity-options {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.5rem;} .severity-options label {display:flex;align-items:center;gap:.4rem;background:var(--panel-soft);border:1px solid var(--line);border-radius:.4rem;padding:.55rem .5rem;font-size:.84rem;cursor:pointer;}
@@ -225,7 +234,7 @@ const actionsSettingsTemplate = `
     <button type="submit" hidden>Update</button>
    </form>
   </div>
-  <p>{{if .Device}}{{.Device}}{{else}}Any device{{end}} · {{range $i,$level := .Severities}}{{if $i}}, {{end}}{{$level}}{{end}}{{if .Contains}} · contains “{{.Contains}}”{{end}}</p>
+  <p>{{if .Devices}}{{if eq .DeviceMode "exclude"}}Exclude{{else}}Include{{end}}: {{range $i,$device := .Devices}}{{if $i}}, {{end}}{{$device}}{{end}}{{else}}Any device{{end}} · {{range $i,$level := .Severities}}{{if $i}}, {{end}}{{$level}}{{end}}{{if .Contains}} · <span class="action-contains">{{if eq .ContainsMode "exclude"}}excludes messages containing any of:{{else}}contains any of:{{end}} {{.Contains}}</span>{{end}}</p>
   <p class="muted">{{if eq .Type "shoutrrr"}}Shoutrrr{{else}}Webhook{{end}} · {{.CooldownSeconds}} second cooldown</p>
   <p class="action-status" data-action-status="{{.ID}}">{{if .Status.Pending}}Queued: {{.Status.Pending}}. {{end}}{{if .Status.Error}}{{.Status.Error}}{{else if not .Status.LastSuccess.IsZero}}Last delivered {{.Status.LastSuccess.Format "2006-01-02 15:04:05 MST"}}{{else}}No deliveries yet{{end}}{{if .Status.Dropped}} · Dropped: {{.Status.Dropped}}{{end}}</p>
   <div class="action-buttons">
@@ -255,8 +264,8 @@ const actionsSettingsTemplate = `
    <section class="action-section" aria-labelledby="action-conditions-heading">
     <h4 id="action-conditions-heading">Match log entries</h4><p class="section-hint">All conditions must match. Any selected severity can trigger the action.</p>
     <div class="action-field-grid">
-     <div class="action-field"><label for="action-device">Device (optional)</label><input id="action-device" name="device" list="action-devices" value="{{.ActionDraft.Device}}" placeholder="Any device"><datalist id="action-devices">{{range .ActionDevices}}<option value="{{.}}">{{end}}</datalist></div>
-     <div class="action-field"><label for="action-contains">Message contains (optional)</label><input id="action-contains" name="contains" maxlength="1024" value="{{.ActionDraft.Contains}}" placeholder="e.g. disk"><small>Case-insensitive text match.</small></div>
+     <div class="action-field"><label for="action-device-mode">Device filter</label><select id="action-device-mode" name="device_mode"><option value="include" {{if ne .ActionDraft.DeviceMode "exclude"}}selected{{end}}>Include</option><option value="exclude" {{if eq .ActionDraft.DeviceMode "exclude"}}selected{{end}}>Exclude</option></select><label for="action-devices">Devices (optional)</label><div id="action-device-input"><textarea id="action-devices" name="devices" rows="3" placeholder="One device per line" aria-controls="action-device-suggestions" aria-describedby="action-devices-hint">{{join .ActionDraft.Devices "\n"}}</textarea><div id="action-device-suggestions" class="action-device-suggestions" role="group" aria-label="Suggested devices" hidden>{{range .ActionDevices}}<button type="button" class="action-secondary" data-action-device="{{.}}">{{.}}</button>{{end}}</div></div><small id="action-devices-hint">Type a device name and choose a suggestion below, or enter one device name per line. Leave empty for any device.</small></div>
+     <div class="action-field"><label for="action-contains-mode">Message filter</label><select id="action-contains-mode" name="contains_mode"><option value="include" {{if ne .ActionDraft.ContainsMode "exclude"}}selected{{end}}>Include</option><option value="exclude" {{if eq .ActionDraft.ContainsMode "exclude"}}selected{{end}}>Exclude</option></select><label for="action-contains">Contains phrases (optional)</label><textarea id="action-contains" name="contains" maxlength="1024" rows="3" placeholder="One phrase per line" aria-describedby="action-contains-hint">{{.ActionDraft.Contains}}</textarea><small id="action-contains-hint">One phrase per line, ignoring case. Include matches messages containing any phrase; Exclude skips them. Blank lines are ignored. Leave empty for any message.</small></div>
     </div>
     <fieldset class="severity-field"><legend>Trigger on these severities</legend><div class="severity-options">{{range .SeverityNames}}<label><input type="checkbox" name="severities" value="{{.}}" {{if $.ActionDraft.HasSeverity .}}checked{{end}}> {{.}}</label>{{end}}</div></fieldset>
    </section>
@@ -266,7 +275,7 @@ const actionsSettingsTemplate = `
   </div>
   <div class="action-dialog-footer">
    <label class="action-switch-label"><input id="action-enabled" type="checkbox" name="enabled" role="switch" class="action-switch" {{if .ActionDraft.Enabled}}checked{{end}}> Enabled</label>
-   <div class="action-footer-buttons"><button type="button" class="action-secondary" data-close-action>Cancel</button><button name="action" value="save" type="submit">Save action</button></div>
+   <div class="action-footer-buttons"><button name="action" value="save" type="submit">Save action</button></div>
   </div>
  </form>
 </dialog>
@@ -281,6 +290,45 @@ const actionsSettingsTemplate = `
  const actionPayload = document.getElementById("action-payload");
  const showActionURL = document.getElementById("action-show-url");
  const actionFormError = actionForm.querySelector("[data-form-error]");
+ const actionDevices = document.getElementById("action-devices");
+ const actionDeviceSuggestions = document.getElementById("action-device-suggestions");
+ const actionDeviceButtons = Array.from(actionDeviceSuggestions.querySelectorAll("[data-action-device]"));
+ function actionDeviceLine() {
+  const start = actionDevices.value.slice(0, actionDevices.selectionStart).lastIndexOf("\n") + 1;
+  const next = actionDevices.value.indexOf("\n", actionDevices.selectionStart);
+  return {start, end: next < 0 ? actionDevices.value.length : next};
+ }
+ function updateDeviceSuggestions() {
+  const {start, end} = actionDeviceLine();
+  const query = actionDevices.value.slice(start, end).trim().toLowerCase();
+  const selected = actionDevices.value.split("\n").map(value => value.trim());
+  for (const button of actionDeviceButtons) {
+   const device = button.dataset.actionDevice;
+   button.hidden = selected.includes(device) || !device.toLowerCase().includes(query);
+  }
+  actionDeviceSuggestions.hidden = !actionDeviceButtons.some(button => !button.hidden);
+ }
+ // Keep textarea focus so Safari does not hide suggestions before the click.
+ for (const button of actionDeviceButtons) button.addEventListener("pointerdown", event => event.preventDefault());
+ for (const button of actionDeviceButtons) button.addEventListener("click", () => {
+  const {start, end} = actionDeviceLine();
+  const suffix = actionDevices.value.slice(end);
+  actionDevices.value = actionDevices.value.slice(0, start) + button.dataset.actionDevice + (suffix || "\n");
+  const caret = start + button.dataset.actionDevice.length + (suffix ? 0 : 1);
+  actionDevices.focus();
+  actionDevices.setSelectionRange(caret, caret);
+  updateDeviceSuggestions();
+ });
+ for (const event of ["input", "focus", "click"]) actionDevices.addEventListener(event, updateDeviceSuggestions);
+ actionDevices.addEventListener("keyup", event => { if (event.key !== "Escape") updateDeviceSuggestions(); });
+ actionDevices.addEventListener("keydown", event => {
+  if (event.key === "Escape" && !actionDeviceSuggestions.hidden) {
+   event.preventDefault(); event.stopPropagation(); actionDeviceSuggestions.hidden = true;
+  }
+ });
+ document.getElementById("action-device-input").addEventListener("focusout", event => {
+  if (!event.currentTarget.contains(event.relatedTarget)) actionDeviceSuggestions.hidden = true;
+ });
  function updateActionFields() {
   const webhook = actionType.value === "webhook";
   if (webhook) actionURL.type = "text";
@@ -304,7 +352,11 @@ const actionsSettingsTemplate = `
   if (actionForm.dataset.submitting === "true") return;
   const draft = rule || {enabled:true, type:"shoutrrr", severities:["emerg","alert","crit","err"], cooldown_seconds:300};
   actionForm.reset();
-  for (const name of ["id","name","device","contains","url"]) actionForm.elements.namedItem(name).value = draft[name] || "";
+  for (const name of ["id","name","contains","url"]) actionForm.elements.namedItem(name).value = draft[name] || "";
+  actionForm.elements.namedItem("device_mode").value = draft.device_mode || "include";
+  actionForm.elements.namedItem("contains_mode").value = draft.contains_mode || "include";
+  actionForm.elements.namedItem("devices").value = (draft.devices || []).join("\n");
+  actionDeviceSuggestions.hidden = true;
   actionForm.elements.namedItem("enabled").checked = draft.enabled;
   actionForm.elements.namedItem("cooldown_seconds").value = draft.cooldown_seconds;
   actionType.value = draft.type;
@@ -324,7 +376,6 @@ const actionsSettingsTemplate = `
  document.querySelector("[data-new-action]").addEventListener("click", () => openActionEditor());
  for (const button of document.querySelectorAll("[data-edit-action]")) button.addEventListener("click", () => openActionEditor(savedActions.find(rule => rule.id === button.dataset.editAction)));
  for (const button of document.querySelectorAll("[data-close-action]")) button.addEventListener("click", () => actionDialog.close());
- actionDialog.addEventListener("click", event => {if (event.target === actionDialog) actionDialog.close();});
  actionType.addEventListener("change", updateActionFields); updateActionFields();
  actionPayloadMode.addEventListener("change", updateActionFields);
  showActionURL.addEventListener("click", () => {

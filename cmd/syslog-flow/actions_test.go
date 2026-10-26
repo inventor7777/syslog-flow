@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -69,11 +70,19 @@ func TestActionsValidation(t *testing.T) {
 		{"no severity", func(r *actionRule) { r.Severities = nil }},
 		{"unknown severity", func(r *actionRule) { r.Severities = []string{"fatal"} }},
 		{"negative cooldown", func(r *actionRule) { r.CooldownSeconds = -1 }},
+		{"long message condition", func(r *actionRule) { r.Contains = strings.Repeat("x", 1025) }},
 		{"local file", func(r *actionRule) { r.URL = "file:///etc/passwd" }},
 		{"embedded credentials", func(r *actionRule) { r.URL = "http://user:secret@example.invalid" }},
 		{"header injection", func(r *actionRule) { r.Headers = map[string]string{"Authorization": "secret\r\nX-Foo: bar"} }},
 		{"bad header name", func(r *actionRule) { r.Headers = map[string]string{"X bad": "foo"} }},
 		{"bad service", func(r *actionRule) { r.Type = "shoutrrr"; r.URL = "unknown-service://secret" }},
+		{"unknown device mode", func(r *actionRule) { r.DeviceMode = "both" }},
+		{"unknown message mode", func(r *actionRule) { r.ContainsMode = "both" }},
+		{"invalid device", func(r *actionRule) { r.Devices = []string{"../router"} }},
+		{"empty device name", func(r *actionRule) { r.Devices = []string{" "} }},
+		{"duplicate devices", func(r *actionRule) { r.Devices = []string{"router", " router "} }},
+		{"mixed device fields", func(r *actionRule) { r.Device = "router"; r.Devices = []string{"nas"} }},
+		{"legacy device exclusion", func(r *actionRule) { r.Device = "router"; r.DeviceMode = "exclude" }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			r := rule
@@ -89,6 +98,198 @@ func TestActionsValidation(t *testing.T) {
 	data, _ = json.Marshal(actionsConfig{Rules: []actionRule{rule}})
 	if _, err := parseActionsConfig(data); err != nil {
 		t.Fatalf("valid Shoutrrr URL: %v", err)
+	}
+}
+
+func TestActionDeviceLists(t *testing.T) {
+	for _, mode := range []string{"include", "exclude"} {
+		for _, devices := range [][]string{nil, {"router", "nas", "2001:db8::1"}} {
+			rule := testActionRule()
+			rule.DeviceMode = mode
+			rule.Devices = devices
+			for _, device := range []string{"router", "nas", "2001:db8::1", "switch", "Router"} {
+				listed := device == "router" || device == "nas" || device == "2001:db8::1"
+				want := len(devices) == 0 || (mode == "include" && listed) || (mode == "exclude" && !listed)
+				if got := rule.matches(actionEvent{Device: device, Severity: "crit"}); got != want {
+					t.Errorf("mode=%s devices=%v device=%s: matched=%t, want %t", mode, devices, device, got, want)
+				}
+			}
+		}
+	}
+}
+
+func TestActionContainsPhrases(t *testing.T) {
+	for _, tc := range []struct {
+		contains string
+		message  string
+		want     bool
+	}{
+		{"", "anything", true},
+		{"DISK", "app: disk unavailable", true},
+		{"disk\nnetwork", "app: network unavailable", true},
+		{"disk\nnetwork", "app: disk unavailable", true},
+		{"disk\nnetwork", "app: healthy", false},
+		{"\n \ndisk\n", "app: healthy", false},
+		{"\r\n \r\n", "app: anything", true},
+		{"disk\r\nnetwork\r\n", "app: NETWORK unavailable", true},
+		{"disk, network", "app: disk unavailable", false},
+		{"disk, network", "app: disk, network unavailable", true},
+		{" disk ", "app: disk unavailable", true},
+		{" disk ", "app: disks unavailable", false},
+	} {
+		for _, mode := range []string{"", "include", "exclude"} {
+			rule := testActionRule()
+			rule.Contains = tc.contains
+			rule.ContainsMode = mode
+			want := tc.want
+			if mode == "exclude" && strings.TrimSpace(tc.contains) != "" {
+				want = !want
+			}
+			event := actionEvent{Device: "router", Severity: "crit", Message: tc.message}
+			if got := rule.matches(event); got != want {
+				t.Errorf("mode=%q contains=%q message=%q: matched=%t, want %t", mode, tc.contains, tc.message, got, want)
+			}
+			event.Severity = "info"
+			if rule.matches(event) {
+				t.Fatal("message filtering must not bypass severity filtering")
+			}
+			event.Severity = "crit"
+			rule.DeviceMode = "exclude"
+			rule.Devices = []string{"router"}
+			if rule.matches(event) {
+				t.Fatal("message filtering must not bypass device filtering")
+			}
+		}
+	}
+}
+
+func TestActionDeviceSuggestions(t *testing.T) {
+	previous := stateIndex
+	t.Cleanup(func() { stateIndex = previous })
+	stateIndex = &logIndex{files: map[string]*indexedFile{
+		"old-router": {name: "router.log"},
+		"router":     {name: "router.log"},
+		"nas":        {name: "nas.log"},
+		"ipv6":       {name: "2001:db8::1.log"},
+	}}
+	response := httptest.NewRecorder()
+	handleSettings(response, httptest.NewRequest(http.MethodGet, "/settings?section=actions", nil))
+	body := response.Body.String()
+	if response.Code != http.StatusOK || !strings.Contains(body, `aria-controls="action-device-suggestions"`) || strings.Contains(body, `id="action-device-picker"`) {
+		t.Fatal("device picker is not connected to suggestions")
+	}
+	_, suggestions, found := strings.Cut(body, `<div id="action-device-suggestions"`)
+	suggestions, _, _ = strings.Cut(suggestions, "</div>")
+	if !found || strings.Count(suggestions, "data-action-device=") != 3 || strings.Index(suggestions, `data-action-device="2001:db8::1"`) > strings.Index(suggestions, `data-action-device="nas"`) || strings.Index(suggestions, `data-action-device="nas"`) > strings.Index(suggestions, `data-action-device="router"`) {
+		t.Fatalf("suggestions must contain sorted, unique device names: %s", suggestions)
+	}
+}
+
+func TestActionDeviceSuggestionsCompleteCurrentLine(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is needed for device suggestion JavaScript checks")
+	}
+	_, script, found := strings.Cut(actionsSettingsTemplate, " const actionDevices =")
+	if !found {
+		t.Fatal("missing device suggestion script")
+	}
+	script, _, found = strings.Cut(script, " function updateActionFields()")
+	if !found {
+		t.Fatal("missing device suggestion script boundary")
+	}
+	script = `
+const assert = require("node:assert/strict");
+function element(values = {}) {
+ return {events: {}, addEventListener(name, handler) {this.events[name] = handler;}, ...values};
+}
+const field = element({value: "", selectionStart: 0, focus() {this.events.focus();}, setSelectionRange(start) {this.selectionStart = start;}});
+const buttons = ["2001:db8::1", "nas", "router", "switch"].map(name => element({dataset: {actionDevice: name}, hidden: false}));
+const suggestions = {hidden: true, querySelectorAll() {return buttons;}};
+const group = element({contains(target) {return target === field || buttons.includes(target);}});
+const document = {getElementById(id) {return {"action-devices": field, "action-device-suggestions": suggestions, "action-device-input": group}[id];}};
+ const actionDevices =` + script + `
+function edit(value, caret = value.length) {field.value = value; field.selectionStart = caret; field.events.input();}
+function visible() {return buttons.filter(button => !button.hidden).map(button => button.dataset.actionDevice);}
+function choose(name) {
+ const button = buttons.find(button => button.dataset.actionDevice === name);
+ assert.equal(button.hidden, false);
+ let cancelled = false;
+ button.events.pointerdown?.({preventDefault() {cancelled = true;}});
+ // Safari can blur the textarea without focusing the clicked button.
+ if (!cancelled) group.events.focusout({currentTarget: group, relatedTarget: null});
+ if (!suggestions.hidden && !button.hidden) button.events.click();
+}
+edit("router\nNA");
+assert.deepEqual(visible(), ["nas"], "filter using only the current line, ignoring case");
+choose("nas");
+assert.equal(field.value, "router\nnas\n", "complete the partial name and prepare a fresh line");
+assert.deepEqual(visible(), ["2001:db8::1", "switch"], "hide devices already listed");
+choose("2001:db8::1");
+assert.equal(field.value, "router\nnas\n2001:db8::1\n");
+edit("router\nsw\nnas", 9);
+choose("switch");
+assert.equal(field.value, "router\nswitch\nnas", "editing a middle line must preserve surrounding devices");
+edit("\nrouter", 0);
+choose("nas");
+assert.equal(field.value, "nas\nrouter", "handle the first empty line without changing the next one");
+edit("sw");
+buttons.find(button => button.dataset.actionDevice === "switch").events.click();
+assert.equal(field.value, "switch\n", "keyboard activation must still work without a pointer press");
+edit("unknown");
+assert.equal(suggestions.hidden, true, "hide the popup when nothing matches");
+edit("router, nas");
+assert.deepEqual(visible(), [], "commas must not split into device names");
+edit("");
+let prevented = false;
+field.events.keydown({key: "Enter", preventDefault() {prevented = true;}});
+assert.equal(prevented, false, "Enter must remain available for newlines");
+let stopped = false;
+field.events.keydown({key: "Escape", preventDefault() {prevented = true;}, stopPropagation() {stopped = true;}});
+assert.equal(suggestions.hidden, true);
+assert.equal(stopped, true, "Escape must close suggestions without dismissing the editor");
+field.events.focus();
+group.events.focusout({currentTarget: group, relatedTarget: buttons[0]});
+assert.equal(suggestions.hidden, false, "keyboard focus can move into the suggestions");
+group.events.focusout({currentTarget: group, relatedTarget: null});
+assert.equal(suggestions.hidden, true, "hide suggestions when leaving the field");
+`
+	if output, err := exec.Command(node, "-e", script).CombinedOutput(); err != nil {
+		t.Fatalf("device suggestion checks: %v\n%s", err, output)
+	}
+}
+
+func TestLegacyActionDeviceLoadsAsIncludeList(t *testing.T) {
+	rule := testActionRule()
+	rule.Device = " router "
+	data, err := json.Marshal(actionsConfig{Rules: []actionRule{rule}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err := parseActionsConfig(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded := config.Rules[0]
+	if loaded.Device != "" || loaded.DeviceMode != "include" || len(loaded.Devices) != 1 || loaded.Devices[0] != "router" {
+		t.Fatalf("legacy device was not normalized: %+v", loaded)
+	}
+	if loaded.ContainsMode != "include" {
+		t.Fatal("legacy rules must default to including message phrases")
+	}
+	if !loaded.matches(actionEvent{Device: "router", Severity: "crit"}) || loaded.matches(actionEvent{Device: "nas", Severity: "crit"}) {
+		t.Fatal("legacy device matching changed")
+	}
+	engine := newActionEngine(filepath.Join(t.TempDir(), "actions.json"))
+	if err := engine.saveLocked(config); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := os.ReadFile(engine.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(saved), `"device":`) || !strings.Contains(string(saved), `"devices":`) {
+		t.Fatalf("saved rule did not use the device list: %s", saved)
 	}
 }
 
@@ -303,6 +504,13 @@ func TestActionsSettingsLifecycleAndSecretFile(t *testing.T) {
 		return response
 	}
 	values := url.Values{"action": {"save"}, "name": {"Disk alert"}, "enabled": {"on"}, "severities": {"crit", "err"}, "cooldown_seconds": {"300"}, "type": {"webhook"}, "url": {"https://example.invalid/hook"}, "headers": {"Authorization: Bearer secret"}, "payload_mode": {"custom"}, "payload": {`{"entity_id":"light.kitchen_pendants"}`}}
+	values.Set("device_mode", "include")
+	values.Set("devices", "router, nas")
+	if response := post(values); response.Code != http.StatusBadRequest || len(actions.config.Rules) != 0 {
+		t.Fatal("comma-separated device names must be rejected without saving a rule")
+	}
+	values.Set("devices", " router\n nas\n2001:db8::1\r\n ")
+	values.Set("contains", "disk unavailable\nnetwork unavailable")
 	if response := post(values); response.Code != http.StatusOK {
 		t.Fatal(response.Body.String())
 	}
@@ -310,6 +518,12 @@ func TestActionsSettingsLifecycleAndSecretFile(t *testing.T) {
 		t.Fatal("rule not saved")
 	}
 	id := actions.config.Rules[0].ID
+	if rule := actions.config.Rules[0]; rule.DeviceMode != "include" || strings.Join(rule.Devices, ",") != "router,nas,2001:db8::1" {
+		t.Fatalf("device list was not saved: %+v", rule)
+	}
+	if actions.config.Rules[0].Contains != values.Get("contains") || actions.config.Rules[0].ContainsMode != "include" {
+		t.Fatal("message phrase list was not saved")
+	}
 	if actions.config.Rules[0].Payload == nil || *actions.config.Rules[0].Payload != values.Get("payload") {
 		t.Fatal("custom payload was not saved")
 	}
@@ -327,9 +541,18 @@ func TestActionsSettingsLifecycleAndSecretFile(t *testing.T) {
 	if response.Code != http.StatusOK || strings.Count(body, `type="checkbox" name="severities"`) != 8 || !strings.Contains(body, `value="crit" checked`) || !strings.Contains(body, `value="err" checked`) || !strings.Contains(body, `name="id" value="`+id+`"`) {
 		t.Fatalf("invalid Actions form: %s", body)
 	}
+	if !strings.Contains(body, `value="include" selected`) || !strings.Contains(body, "router\nnas\n2001:db8::1</textarea>") || !strings.Contains(body, "Include: router, nas, 2001:db8::1") {
+		t.Fatal("editor or rule card lost the saved include list")
+	}
+	if !strings.Contains(body, `name="contains_mode"><option value="include" selected`) || !strings.Contains(body, `id="action-contains" name="contains"`) || !strings.Contains(body, "disk unavailable\nnetwork unavailable</textarea>") || !strings.Contains(body, "contains any of: disk unavailable\nnetwork unavailable") {
+		t.Fatal("editor or rule card lost the saved message phrases")
+	}
 	values.Set("id", id)
 	values.Set("name", "Edited alert")
 	values.Set("payload_mode", "log")
+	values.Set("device_mode", "exclude")
+	values.Set("contains_mode", "exclude")
+	values.Set("devices", "nas\nswitch")
 	if response := post(values); response.Code != 200 {
 		t.Fatal(response.Body.String())
 	}
@@ -338,6 +561,26 @@ func TestActionsSettingsLifecycleAndSecretFile(t *testing.T) {
 	}
 	if actions.config.Rules[0].Payload != nil {
 		t.Fatal("log-event mode must clear the custom payload")
+	}
+	if rule := actions.config.Rules[0]; rule.DeviceMode != "exclude" || !rule.matches(actionEvent{Device: "router", Severity: "crit", Message: "healthy"}) || rule.matches(actionEvent{Device: "nas", Severity: "crit", Message: "healthy"}) || rule.matches(actionEvent{Device: "switch", Severity: "crit", Message: "healthy"}) {
+		t.Fatal("saved exclusion list did not take effect")
+	}
+	reloaded := newActionEngine(actions.path)
+	if err := reloaded.reload(); err != nil {
+		t.Fatal(err)
+	}
+	if rule := reloaded.config.Rules[0]; rule.ContainsMode != "exclude" || rule.matches(actionEvent{Device: "router", Severity: "crit", Message: "network unavailable"}) || rule.matches(actionEvent{Device: "router", Severity: "crit", Message: "disk unavailable"}) {
+		t.Fatal("saved message exclusions did not survive reloading")
+	}
+	response = httptest.NewRecorder()
+	handleSettings(response, httptest.NewRequest(http.MethodGet, "/settings?section=actions&edit="+id, nil))
+	if body := response.Body.String(); !strings.Contains(body, `value="exclude" selected`) || !strings.Contains(body, "nas\nswitch</textarea>") || !strings.Contains(body, "Exclude: nas, switch") {
+		t.Fatal("editor or rule card lost the saved exclusion list")
+	}
+	_, messageSelect, _ := strings.Cut(response.Body.String(), `id="action-contains-mode"`)
+	messageSelect, _, _ = strings.Cut(messageSelect, "</select>")
+	if !strings.Contains(messageSelect, `value="exclude" selected`) || !strings.Contains(response.Body.String(), "excludes messages containing any of: disk unavailable\nnetwork unavailable") {
+		t.Fatal("editor or rule card lost the saved message exclusion mode")
 	}
 	if response := post(url.Values{"action": {"toggle"}, "id": {id}}); response.Code != 200 {
 		t.Fatal(response.Body.String())
