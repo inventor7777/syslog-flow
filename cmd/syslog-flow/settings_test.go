@@ -19,6 +19,16 @@ func TestFormDialogsIgnoreOutsideClicks(t *testing.T) {
 	}
 }
 
+func TestSettingsActionRequests(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is needed for settings request checks")
+	}
+	if output, err := exec.Command(node, "testdata/settings_test.cjs").CombinedOutput(); err != nil {
+		t.Fatalf("settings request checks: %v\n%s", err, output)
+	}
+}
+
 func TestDefaultSettingsJSONUsesConfigGeneratorDefaults(t *testing.T) {
 	data, err := defaultSettingsJSON("status-colors")
 	if err != nil {

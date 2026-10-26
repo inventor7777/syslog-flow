@@ -75,6 +75,7 @@ func TestActionsValidation(t *testing.T) {
 		{"embedded credentials", func(r *actionRule) { r.URL = "http://user:secret@example.invalid" }},
 		{"header injection", func(r *actionRule) { r.Headers = map[string]string{"Authorization": "secret\r\nX-Foo: bar"} }},
 		{"bad header name", func(r *actionRule) { r.Headers = map[string]string{"X bad": "foo"} }},
+		{"duplicate header names", func(r *actionRule) { r.Headers = map[string]string{"Authorization": "one", "authorization": "two"} }},
 		{"bad service", func(r *actionRule) { r.Type = "shoutrrr"; r.URL = "unknown-service://secret" }},
 		{"unknown device mode", func(r *actionRule) { r.DeviceMode = "both" }},
 		{"unknown message mode", func(r *actionRule) { r.ContainsMode = "both" }},
@@ -98,6 +99,20 @@ func TestActionsValidation(t *testing.T) {
 	data, _ = json.Marshal(actionsConfig{Rules: []actionRule{rule}})
 	if _, err := parseActionsConfig(data); err != nil {
 		t.Fatalf("valid Shoutrrr URL: %v", err)
+	}
+}
+
+func TestActionsCanonicalizesHeaders(t *testing.T) {
+	rule := testActionRule()
+	rule.Headers = map[string]string{"authorization": "Bearer secret", "x-custom": "value"}
+	data, _ := json.Marshal(actionsConfig{Rules: []actionRule{rule}})
+	config, err := parseActionsConfig(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	headers := config.Rules[0].Headers
+	if len(headers) != 2 || headers["Authorization"] != "Bearer secret" || headers["X-Custom"] != "value" {
+		t.Fatalf("headers were not canonicalized: %#v", headers)
 	}
 }
 
@@ -582,8 +597,19 @@ func TestActionsSettingsLifecycleAndSecretFile(t *testing.T) {
 	if !strings.Contains(messageSelect, `value="exclude" selected`) || !strings.Contains(response.Body.String(), "excludes messages containing any of: disk unavailable\nnetwork unavailable") {
 		t.Fatal("editor or rule card lost the saved message exclusion mode")
 	}
-	if response := post(url.Values{"action": {"toggle"}, "id": {id}}); response.Code != 200 {
-		t.Fatal(response.Body.String())
+	// Stale tabs must apply their requested state instead of reversing it.
+	for _, state := range []string{"off", "off", "on", "on", "off"} {
+		if response := post(url.Values{"action": {"toggle"}, "id": {id}, "enabled": {state}}); response.Code != 200 {
+			t.Fatal(response.Body.String())
+		}
+		if actions.config.Rules[0].Enabled != (state == "on") {
+			t.Fatalf("toggle did not apply requested state %q", state)
+		}
+	}
+	for _, state := range []string{"", "invalid"} {
+		if response := post(url.Values{"action": {"toggle"}, "id": {id}, "enabled": {state}}); response.Code != http.StatusBadRequest {
+			t.Fatal("invalid toggle state accepted")
+		}
 	}
 	if actions.config.Rules[0].Enabled {
 		t.Fatal("rule not disabled")
@@ -796,31 +822,53 @@ func TestActionsEditorDataEscapesMarkup(t *testing.T) {
 
 func TestActionsSaveCancelsQueuedDeliveries(t *testing.T) {
 	received := make(chan actionEvent, 4)
+	release := make(chan struct{}, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var event actionEvent
 		_ = json.NewDecoder(r.Body).Decode(&event)
 		received <- event
+		if !event.Test {
+			<-release
+		}
 		w.WriteHeader(204)
 	}))
 	defer server.Close()
+	defer close(release)
 	rule := testActionRule()
 	rule.URL = server.URL
+	rule.CooldownSeconds = 0
 	engine := configuredActions(t, rule)
 	now := appNow()
-	engine.consider(actionLine(now, "router", "crit", "queued before disable"), now)
-	if len(engine.queue) != 1 {
-		t.Fatal("missing queued job")
-	}
-	rule.Enabled = false
-	if err := engine.saveLocked(actionsConfig{Rules: []actionRule{rule}}); err != nil {
-		t.Fatal(err)
-	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go engine.worker(ctx)
+	engine.consider(actionLine(now, "router", "crit", "delivery in progress"), now)
+	select {
+	case <-received:
+	case <-time.After(time.Second):
+		t.Fatal("first delivery did not start")
+	}
+	for i := 0; i < cap(engine.queue); i++ {
+		engine.consider(actionLine(now, "router", "crit", "queued before disable"), now)
+	}
+	if len(engine.queue) != cap(engine.queue) {
+		t.Fatal("queue was not filled")
+	}
+	rule.Enabled = false
+	engine.mu.Lock()
+	err := engine.saveLocked(actionsConfig{Rules: []actionRule{rule}})
+	pending := engine.statuses[rule.ID].Pending
+	engine.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(engine.queue) != 0 || pending != 0 {
+		t.Fatal("save did not release cancelled queue capacity")
+	}
 	if err := engine.test(rule.ID); err != nil {
 		t.Fatal(err)
 	}
+	release <- struct{}{}
 	select {
 	case event := <-received:
 		if !event.Test {

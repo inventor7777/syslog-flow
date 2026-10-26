@@ -124,6 +124,10 @@ func handleActionsSave(w http.ResponseWriter, r *http.Request) {
 		writeSettingsError(w, r, http.StatusBadRequest, "Invalid action operation")
 		return
 	}
+	if operation == "toggle" && r.Form.Get("enabled") != "on" && r.Form.Get("enabled") != "off" {
+		writeSettingsError(w, r, http.StatusBadRequest, "Choose an enabled or disabled state")
+		return
+	}
 	actions.mu.Lock()
 	config := actionsConfig{Rules: append([]actionRule{}, actions.config.Rules...)}
 	found := false
@@ -136,7 +140,7 @@ func handleActionsSave(w http.ResponseWriter, r *http.Request) {
 			case "delete":
 				config.Rules = append(config.Rules[:i], config.Rules[i+1:]...)
 			case "toggle":
-				config.Rules[i].Enabled = !config.Rules[i].Enabled
+				config.Rules[i].Enabled = r.Form.Get("enabled") == "on"
 			}
 			break
 		}
@@ -230,7 +234,7 @@ const actionsSettingsTemplate = `
    <h3>{{.Name}}</h3>
    <form method="post" action="/settings" data-settings-form>
     <input type="hidden" name="section" value="actions"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="action" value="toggle">
-    <label class="action-switch-label"><input type="checkbox" role="switch" class="action-switch" data-action-toggle aria-label="Enable {{.Name}}" {{if .Enabled}}checked{{end}}> Enabled</label>
+    <label class="action-switch-label"><input type="checkbox" name="enabled" value="on" role="switch" class="action-switch" data-action-toggle aria-label="Enable {{.Name}}" {{if .Enabled}}checked{{end}}> Enabled</label>
     <button type="submit" hidden>Update</button>
    </form>
   </div>

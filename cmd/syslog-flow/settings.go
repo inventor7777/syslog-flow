@@ -214,6 +214,18 @@ var settingsPage = template.Must(template.New("settings").Funcs(template.FuncMap
       window.setTimeout(() => window.location.reload(), 1200);
     }
 
+    let settingsNavigationPending = false;
+    function reloadActions(form) {
+      if (settingsNavigationPending) return;
+      const editor = document.getElementById("action-dialog");
+      if (editor?.open && !editor.contains(form)) {
+        editor.addEventListener("close", () => reloadActions(form), { once: true });
+        return;
+      }
+      settingsNavigationPending = true;
+      window.location.href = "/settings?section=actions";
+    }
+
     for (const form of settingForms) {
       const enabledSwitch = form.querySelector("[data-action-toggle]");
       if (enabledSwitch) enabledSwitch.addEventListener("change", () => form.requestSubmit());
@@ -227,10 +239,13 @@ var settingsPage = template.Must(template.New("settings").Funcs(template.FuncMap
         const originalLabel = button.textContent;
         const formError = form.querySelector("[data-form-error]") || document.getElementById("actions-page-error");
         if (formError) { formError.hidden = true; formError.textContent = ""; }
-        if (enabledSwitch) enabledSwitch.disabled = true;
         const body = new URLSearchParams();
         for (const [name, value] of new FormData(form).entries()) {
           body.append(name, value);
+        }
+        if (enabledSwitch) {
+          body.set("enabled", enabledSwitch.checked ? "on" : "off");
+          enabledSwitch.disabled = true;
         }
         if (button.name) body.append(button.name, button.value);
         const resetting = button.value === "reset";
@@ -243,7 +258,7 @@ var settingsPage = template.Must(template.New("settings").Funcs(template.FuncMap
           });
           const result = await response.json();
           if (!response.ok || !result.ok) throw new Error(result.error || "Save failed");
-          if (result.reload) { window.location.href = "/settings?section=actions"; return; }
+          if (result.reload) { reloadActions(form); return; }
           if (form.matches("[data-cache-form]")) {
             pollCacheRefresh(form, button).catch(error => {
               form.dataset.submitting = "";

@@ -190,11 +190,18 @@ func parseActionsConfig(data []byte) (actionsConfig, error) {
 		if len(rule.Headers) > 32 {
 			return config, fmt.Errorf("Use at most 32 webhook headers")
 		}
+		headers := make(map[string]string, len(rule.Headers))
 		for name, value := range rule.Headers {
 			if rule.Type != "webhook" || !validActionHeader(name) || len(value) > 8192 || strings.ContainsAny(value, "\r\n\x00") {
 				return config, fmt.Errorf("Invalid webhook header")
 			}
+			name = http.CanonicalHeaderKey(name)
+			if _, exists := headers[name]; exists {
+				return config, fmt.Errorf("Webhook header names must be unique, ignoring case")
+			}
+			headers[name] = value
 		}
+		rule.Headers = headers
 	}
 	return config, nil
 }
@@ -229,6 +236,14 @@ func (engine *actionEngine) apply(config actionsConfig, info os.FileInfo) {
 		statuses[rule.ID] = status
 	}
 	engine.statuses = statuses
+	// Cancelled jobs must release capacity even while a delivery is in progress.
+	for {
+		select {
+		case <-engine.queue:
+		default:
+			return
+		}
+	}
 }
 
 func (engine *actionEngine) reload() error {
