@@ -15,6 +15,8 @@ term_handler() {
 
 trap 'term_handler; wait 2>/dev/null || true; exit 0' INT TERM
 
+[ -f /var/run/rsyslogd.pid ] && rm -f /var/run/rsyslogd.pid
+
 rsyslogd -n &
 rsyslog_pid=$!
 
