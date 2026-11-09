@@ -10,7 +10,7 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o /out/syslog-flow
 
 FROM alpine:latest
 
-RUN apk add --no-cache rsyslog ca-certificates
+RUN apk add --no-cache rsyslog ca-certificates dumb-init
 
 COPY --from=build /out/syslog-flow /usr/local/bin/syslog-flow
 COPY rsyslog.conf /etc/rsyslog.conf
@@ -22,4 +22,5 @@ VOLUME ["/logs", "/config", "/var/spool/rsyslog"]
 
 EXPOSE 2200/tcp 514/tcp 514/udp
 
-ENTRYPOINT ["/entrypoint.sh"]
+ENTRYPOINT ["/usr/bin/dumb-init", "--"]
+CMD ["/entrypoint.sh"]

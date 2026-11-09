@@ -1,42 +1,11 @@
 #!/bin/sh
 set -eu
 
-mkdir -p /logs
-umask 0000
-
-term_handler() {
-  if [ "${rsyslog_pid:-}" ]; then
-    kill "$rsyslog_pid" 2>/dev/null || true
-  fi
-  if [ "${web_pid:-}" ]; then
-    kill "$web_pid" 2>/dev/null || true
-  fi
-}
-
-trap 'term_handler; wait 2>/dev/null || true; exit 0' INT TERM
-
 [ -f /var/run/rsyslogd.pid ] && rm -f /var/run/rsyslogd.pid
 
-rsyslogd -n &
-rsyslog_pid=$!
+_start_rsyslogd() {
+    rsyslogd -n ; exit 0
+}
 
-SYSLOG_FLOW_RSYSLOG_PID="$rsyslog_pid" /usr/local/bin/syslog-flow &
-web_pid=$!
-
-while :; do
-  if ! kill -0 "$rsyslog_pid" 2>/dev/null; then
-    wait "$rsyslog_pid" || status=$?
-    kill "$web_pid" 2>/dev/null || true
-    wait "$web_pid" 2>/dev/null || true
-    exit "${status:-1}"
-  fi
-
-  if ! kill -0 "$web_pid" 2>/dev/null; then
-    wait "$web_pid" || status=$?
-    kill "$rsyslog_pid" 2>/dev/null || true
-    wait "$rsyslog_pid" 2>/dev/null || true
-    exit "${status:-1}"
-  fi
-
-  sleep 1
-done
+_start_rsyslogd &
+SYSLOG_FLOW_RSYSLOG_PID="$(pgrep rsyslogd)" /usr/local/bin/syslog-flow
