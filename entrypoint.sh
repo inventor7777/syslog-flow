@@ -5,5 +5,6 @@ set -eu
 
 ( rsyslogd -n || true ; pkill syslog-flow ) &
 
-SYSLOG_FLOW_RSYSLOG_PID="$(pgrep rsyslogd)" /usr/local/bin/syslog-flow
+export SYSLOG_FLOW_RSYSLOG_PID="$(pgrep rsyslogd)"
+[ -z "${SYSLOG_FLOW_RSYSLOG_PID}" ] || /usr/local/bin/syslog-flow
 
