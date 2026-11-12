@@ -76,7 +76,7 @@ The `syslog-flow` container runs two processes:
 - Stores ingested logs as plain text under `./logs` with logical folder organization.
 - Supports day views, per-device views, global search, and severity filters
 - Search opens a popup with optional text and inclusive From / Through date filters, defaulting to seven days ago through today. Reopening it from results preserves your selected dates. Global results use the normal log viewer and support device and severity filters while preserving the selected dates. Blank dates include all days; text is optional. Search keeps the newest 5,000 matching entries.
-- Click a timestamp in global results to open its original day/device file, load surrounding entries without search filters, and highlight the selected entry. This context view pauses live log updates and offers **View latest logs** to return to the live view; scrolling up still loads older entries. Links use the physical line number plus a checksum, so repeated timestamps are supported and changed or deleted source entries show an unavailable message.
+- Click a timestamp in global results to open its original day/device file, load surrounding entries without search filters, and highlight the selected entry. This context view pauses live log updates and offers **View latest logs** to return to the live view; scrolling up still loads older entries.
 - Shows simple statistics and live device activity at '/statistics`
 - Exposes a simple numeric stats API at `GET /api/stats`
 - Caches key information in per-day JSON files for super fast startup and responsive API
@@ -164,7 +164,7 @@ docker compose up --build -d
 ## Notes
 
 - Logs are stored as plain text only. There is no database.
-- Live views keep polling while you scroll up or select text, append new entries below, and preserve your reading position and selection. Automatic scrolling resumes when you return to the bottom with no text selected. Day views trim to 5,000 rows when following the bottom; rows are retained while reading older entries or selecting text. Scroll up to load older entries from disk.
+- Live day views keep up to 5,000 rows during automatic updates. Scroll up to load older entries from disk.
 - Device and severity pill lists compact into scrollable rows when the log viewer would otherwise have less than 325px of height, and expand again when space allows. This responds to the actual viewer space rather than a fixed screen-height breakpoint.
 - Open log and statistics pages reload on their next successful poll after a server restart or midnight index reset. The URL and filters stay selected; scroll position and loaded history reset.
 - Completed log days keep a small JSON summary beside their `.log` files, such as `logs/2026/05/05/2026-05-05.json`. Missing or unusable summaries are rebuilt on startup; valid existing summaries are only refreshed from Settings.
