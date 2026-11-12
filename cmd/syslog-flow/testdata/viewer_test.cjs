@@ -36,6 +36,7 @@ class Element {
     this.parent.children.splice(this.parent.children.indexOf(this), 1);
   }
   querySelectorAll() { return [...this.children]; }
+  contains(node) { return node === this || this.children.some(child => child === node || child.contains?.(node)); }
   addEventListener(name, callback) { this.listeners[name] = callback; }
   get scrollHeight() { return this.children.length * 20; }
   get clientHeight() { return this.height ?? 100; }
@@ -95,9 +96,9 @@ function viewerContext(day, layout, target) {
   return {
     viewer, requests, context, timeouts,
     get reloads() { return reloads; },
-    async poll(value) {
+    async poll(value, atBottom = true) {
       payload = value;
-      viewer.scrollTop = Math.max(0, viewer.scrollHeight - viewer.clientHeight);
+      if (atBottom) viewer.scrollTop = Math.max(0, viewer.scrollHeight - viewer.clientHeight);
       await timers[0]();
     },
     async pollStats(value) {
@@ -160,6 +161,78 @@ async function main() {
   assert.equal(home.viewer.children.length, 1, "an initially empty homepage must receive logs");
 
   for (const isDay of [false, true]) {
+    const reading = viewerContext(isDay);
+    const logs = Array.from({ length: 60 }, (_, i) => "log " + i);
+    await reading.poll({ lines: logs.slice(0, 40), cursor: 50 });
+    reading.viewer.scrollTop = 200;
+    const entry = reading.viewer.children[10];
+    await reading.poll({ lines: logs.slice(isDay ? 40 : 20), cursor: 70 }, false);
+    assert.equal(reading.requests.length, 2, "scrolling up must not stop polling");
+    assert.equal(reading.viewer.scrollTop, 200, "background updates must preserve the reading position");
+    assert.equal(reading.viewer.children[10], entry, "background updates must preserve the entry being read");
+    assert.equal(reading.viewer.children.length, 60, "new entries must append without duplicating overlapping logs");
+    await reading.poll({ lines: isDay ? [] : logs.slice(20), cursor: 70 }, false);
+    assert.equal(reading.viewer.children.length, 60, "repeated polls must not duplicate entries");
+    if (isDay) {
+      assert.equal(new URL(reading.requests.at(-1), "http://localhost").searchParams.get("since"), "70",
+        "background polls must advance the cursor");
+    } else {
+      await reading.poll({ lines: ["new snapshot without overlap"] }, false);
+      assert.equal(reading.viewer.children[10], entry, "a rolling homepage snapshot must not replace the entry being read");
+    }
+    await reading.poll({ lines: isDay ? ["latest"] : ["new snapshot without overlap", "latest"], cursor: 71 });
+    assert.equal(reading.viewer.scrollTop, reading.viewer.scrollHeight, "following the bottom must resume automatic scrolling");
+
+    const slowRead = viewerContext(isDay);
+    await slowRead.poll({ lines: logs, cursor: 70 });
+    let finish;
+    slowRead.context.fetch = () => new Promise(resolve => { finish = resolve; });
+    const pending = slowRead.poll();
+    slowRead.viewer.scrollTop = 100;
+    finish({ ok: true, json: async () => ({ lines: isDay ? ["latest"] : [...logs, "latest"], cursor: 71 }) });
+    await pending;
+    assert.equal(slowRead.viewer.scrollTop, 100, "scrolling up during a request must also preserve position");
+  }
+
+  for (const isDay of [false, true]) {
+    const selecting = viewerContext(isDay);
+    const logs = Array.from({ length: 5020 }, (_, i) => "log " + i);
+    await selecting.poll({ lines: logs.slice(0, 5000), cursor: 5010 });
+    const selected = selecting.viewer.children[0];
+    const selection = { rangeCount: 1, isCollapsed: false, getRangeAt: () => ({ commonAncestorContainer: selected }) };
+    selecting.context.window.getSelection = () => selection;
+    await selecting.poll({ lines: logs.slice(isDay ? 5000 : 20), cursor: 5030 });
+    assert.equal(selecting.requests.length, 2, "text selection must not stop polling");
+    assert.equal(selecting.viewer.scrollTop, 99900, "selected text must prevent automatic scrolling even at the bottom");
+    assert.equal(selecting.viewer.children[0], selected, "selected nodes must not be removed by trimming or rolling snapshots");
+    assert.equal(selecting.viewer.children.length, 5020, "new entries must append while text is selected");
+    await selecting.poll({ lines: isDay ? [] : logs.slice(20), cursor: 5030 }, false);
+    assert.equal(selecting.viewer.children.length, 5020, "selection must not cause duplicate entries");
+    if (isDay) {
+      assert.equal(new URL(selecting.requests.at(-1), "http://localhost").searchParams.get("since"), "5030",
+        "polling during selection must advance the cursor");
+    }
+    selection.isCollapsed = true;
+    await selecting.poll({ lines: isDay ? [] : logs.slice(20), cursor: 5030 });
+    assert.equal(selecting.viewer.children.length, 5000, "clearing selection and returning to the bottom must restore trimming");
+    assert.equal(selecting.viewer.scrollTop, selecting.viewer.scrollHeight);
+
+    const slowSelection = viewerContext(isDay);
+    await slowSelection.poll({ lines: logs.slice(0, 40), cursor: 50 });
+    let finish;
+    slowSelection.context.fetch = () => new Promise(resolve => { finish = resolve; });
+    const pending = slowSelection.poll();
+    slowSelection.context.window.getSelection = () => ({
+      rangeCount: 1, isCollapsed: false,
+      getRangeAt: () => ({ commonAncestorContainer: slowSelection.viewer.children[0] }),
+    });
+    finish({ ok: true, json: async () => ({ lines: isDay ? ["latest"] : [...logs.slice(20, 40), "latest"], cursor: 51 }) });
+    await pending;
+    assert.equal(slowSelection.viewer.scrollTop, 700, "selection started during a request must also prevent scrolling");
+    assert.equal(slowSelection.viewer.children.length, 41, "selection started during a request must preserve existing entries");
+  }
+
+  for (const isDay of [false, true]) {
     const slow = viewerContext(isDay);
     const normalFetch = slow.context.fetch;
     let finish;
@@ -187,11 +260,24 @@ async function main() {
   await day.poll({ lines: ["next log"], cursor: 6011 });
   assert.equal(day.viewer.children.length, 5000);
   assert.equal(day.viewer.children[0].dataset.raw, "log 1001");
+  day.viewer.scrollTop = 200;
+  const readingEntry = day.viewer.children[10];
+  await day.poll({ lines: ["background log"], cursor: 6012 }, false);
+  assert.equal(day.viewer.children.length, 5001, "trimming must wait while older entries are being read");
+  assert.equal(day.viewer.children[10], readingEntry);
+  assert.equal(day.viewer.scrollTop, 200);
+  await day.poll({ lines: [], cursor: 6012 });
+  assert.equal(day.viewer.children.length, 5000, "returning to the bottom must trim even without new entries");
   await day.older({ lines: ["older log"], start: 1000, hasMoreBefore: true });
-  assert.equal(new URL(day.requests.at(-1), "http://localhost").searchParams.get("before"), "1001");
+  assert.equal(new URL(day.requests.at(-1), "http://localhost").searchParams.get("before"), "1002");
   assert.equal(day.viewer.children[0].dataset.raw, "older log", "trimmed history must remain accessible");
 
-  await day.poll({ lines: ["replacement log"], cursor: 7000, replace: true, start: 6500, hasMoreBefore: true });
+  const gap = { lines: ["replacement log"], cursor: 7000, replace: true, start: 6500, hasMoreBefore: true };
+  const beforeGap = day.viewer.children[0];
+  await day.poll(gap, false);
+  assert.equal(day.viewer.children[0], beforeGap, "a missed-data gap must not replace the view while reading");
+  assert.equal(vm.runInContext("refreshCursor", day.context), 6012, "a deferred replacement must not advance the cursor");
+  await day.poll(gap);
   assert.equal(day.viewer.children.length, 1);
   await day.older({ lines: ["previous log"], start: 6499, hasMoreBefore: true });
   assert.equal(new URL(day.requests.at(-1), "http://localhost").searchParams.get("before"), "6500",

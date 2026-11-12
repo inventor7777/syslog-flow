@@ -15,7 +15,7 @@ term_handler() {
 
 trap 'term_handler; wait 2>/dev/null || true; exit 0' INT TERM
 
-rsyslogd -n &
+rsyslogd -n -iNONE &
 rsyslog_pid=$!
 
 SYSLOG_FLOW_RSYSLOG_PID="$rsyslog_pid" /usr/local/bin/syslog-flow &

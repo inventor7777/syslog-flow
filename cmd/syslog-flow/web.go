@@ -934,19 +934,19 @@ var page = template.Must(template.New("page").Funcs(template.FuncMap{
       }
     }
 
-    function applyIncrementalUpdate(nextLines) {
+    function applyIncrementalUpdate(nextLines, keepCurrentLines = false) {
       const currentLines = viewerLines();
       if (linesEqual(nextLines, currentLines)) {
         return true;
       }
 
       const overlap = overlapEnd(currentLines, nextLines);
-      if (overlap === 0 && currentLines.length > 0 && nextLines.length > 0) {
+      if (!keepCurrentLines && overlap === 0 && currentLines.length > 0 && nextLines.length > 0) {
         return false;
       }
 
       const newSuffix = nextLines.slice(overlap);
-      if (!preservePrefix) {
+      if (!preservePrefix && !keepCurrentLines) {
         const keepCount = overlap;
         const dropCount = Math.max(0, currentLines.length - keepCount);
         const currentNodes = Array.from(logViewer.querySelectorAll(".log-line"));
@@ -1115,14 +1115,6 @@ var page = template.Must(template.New("page").Funcs(template.FuncMap{
         if (!liveEnabled || navigationPending || loadingOlder || refreshingLogs) {
           return;
         }
-        if (hasViewerSelection()) {
-          return;
-        }
-        const distanceFromBottom = logViewer.scrollHeight - logViewer.clientHeight - logViewer.scrollTop;
-        const wasAtBottom = distanceFromBottom <= 4;
-        if (!wasAtBottom) {
-          return;
-        }
         refreshingLogs = true;
         try {
           const refreshUrl = new URL(logViewer.dataset.refreshUrl, window.location.origin);
@@ -1133,6 +1125,10 @@ var page = template.Must(template.New("page").Funcs(template.FuncMap{
           if (response.ok) {
             const payload = await response.json();
             if (reloadIfGenerationChanged(payload)) return;
+            const previousTop = logViewer.scrollTop;
+            const wasAtBottom = !hasViewerSelection() && logViewer.scrollHeight - logViewer.clientHeight - previousTop <= 4;
+            // Keep the entry being read if a missed-data gap requires replacing the view.
+            if (payload.replace && !wasAtBottom) return;
             const nextLines = Array.isArray(payload.lines) ? payload.lines : [];
             if (typeof payload.cursor === "number" && payload.cursor > 0) {
               refreshCursor = payload.cursor;
@@ -1142,28 +1138,20 @@ var page = template.Must(template.New("page").Funcs(template.FuncMap{
               replaceViewerLines(nextLines);
               loadedStart = payload.start || 0;
               hasOlder = !!payload.hasMoreBefore;
-              scrollToBottom();
-              return;
-            }
-            if (preservePrefix && refreshCursor > 0) {
-              if (nextLines.length === 0) {
-                return;
-              }
+            } else if (preservePrefix && refreshCursor > 0) {
               for (const line of nextLines) {
                 logViewer.appendChild(appendLineNode(line));
               }
-              trimLiveViewerLines();
-              scrollToBottom();
-              return;
-            }
-            if (linesEqual(nextLines, viewerLines())) {
-              return;
-            }
-            if (!applyIncrementalUpdate(nextLines)) {
+            } else if (!applyIncrementalUpdate(nextLines, !wasAtBottom)) {
               replaceViewerLines(nextLines);
             }
-            trimLiveViewerLines();
-            scrollToBottom();
+            if (wasAtBottom) {
+              trimLiveViewerLines();
+              scrollToBottom();
+            } else {
+              // shortcut: retain rows while reading; add a bounded backlog if long reading sessions use too much memory.
+              logViewer.scrollTop = previousTop;
+            }
           }
         } catch {
           // Keep the current view if a refresh fails.
