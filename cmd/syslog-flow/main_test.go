@@ -29,7 +29,11 @@ func TestDayRecordStreamsMergeInReceiveOrder(t *testing.T) {
 	streams := make([]*dayRecordStream, 0, len(paths))
 	queue := make(dayRecordStreamHeap, 0, len(paths))
 	for _, path := range paths {
-		stream, err := newDayRecordStream(path.path, path.label, logFilter{})
+		info, err := os.Stat(path.path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		stream, err := newDayRecordStream(path.path, path.label, logFilter{}, info.Size())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -144,7 +148,11 @@ func TestEqualTimestampOrderAcrossLogViews(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		stream, err := newDayRecordStream(path, day+"/"+file.Name, logFilter{})
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		stream, err := newDayRecordStream(path, day+"/"+file.Name, logFilter{}, info.Size())
 		if err != nil {
 			t.Fatal(err)
 		}

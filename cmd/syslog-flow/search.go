@@ -9,7 +9,7 @@ import (
 )
 
 func searchParameters(values url.Values) (PageData, error) {
-	data := PageData{Global: true, Query: strings.TrimSpace(values.Get("q")), File: strings.TrimSpace(values.Get("file")), SearchStart: values.Get("start"), SearchEnd: values.Get("end")}
+	data := PageData{Global: true, Query: strings.TrimSpace(values.Get("q")), Regex: values.Get("regex") == "1", File: strings.TrimSpace(values.Get("file")), SearchStart: values.Get("start"), SearchEnd: values.Get("end")}
 	for _, date := range []string{data.SearchStart, data.SearchEnd} {
 		if date != "" {
 			if _, err := time.Parse("2006-01-02", date); err != nil {
@@ -71,6 +71,9 @@ func searchDevices(days []Day) []LogFile {
 
 func (data PageData) SearchURL(file, severity string) string {
 	values := url.Values{}
+	if data.Regex {
+		values.Set("regex", "1")
+	}
 	for key, value := range map[string]string{"q": data.Query, "start": data.SearchStart, "end": data.SearchEnd, "scope": data.SearchScope, "file": file, "level": severity} {
 		if value != "" {
 			values.Set(key, value)
@@ -89,6 +92,7 @@ func (data PageData) SearchDialogData() PageData {
 }
 
 const searchDialogTemplate = `
+{{define "regex-toggle"}}<label class="regex-toggle" title="Match regular expressions, such as nut|ups. Matching ignores case."><input type="checkbox" name="regex" value="1"{{if .Regex}} checked{{end}}> Regex</label>{{end}}
 {{define "search-dialog"}}
 <style>
   .open-search { align-items: center; background: var(--accent); border: 0; border-radius: .55rem; color: white; cursor: pointer; display: inline-flex; font: inherit; font-weight: 700; gap: .5rem; justify-content: center; padding: .65rem .9rem; width: 100%; }
@@ -102,6 +106,7 @@ const searchDialogTemplate = `
   .search-dialog-body { background: var(--bg); padding: 1.25rem; }
   .search-dialog label { display: block; font-weight: 650; margin: 0 0 .4rem; }
   .search-dialog input { display: block; font: inherit; min-width: 0; width: 100%; }
+  .search-dialog .regex-toggle { display: inline-flex; font-weight: normal; margin: .75rem 0 0; }
   .search-date-fields { border-top: 1px solid var(--line); display: grid; gap: 1rem; grid-template-columns: repeat(2,minmax(0,1fr)); margin-top: 1.25rem; padding-top: 1.25rem; }
   .search-dialog-footer { border-top: 1px solid var(--line); justify-content: flex-end; }
   .search-dialog .search-cancel { background: var(--panel-soft); border: 1px solid var(--line); color: var(--ink); }
@@ -114,6 +119,7 @@ const searchDialogTemplate = `
     <div class="search-dialog-body">
       <label for="search-query">Contains text</label>
       <input id="search-query" name="q" value="{{.Query}}" placeholder="Any message" autofocus>
+      {{template "regex-toggle" .}}
       <div class="search-date-fields">
         <div><label for="search-start">From date</label><input id="search-start" type="date" name="start" value="{{.SearchStart}}"></div>
         <div><label for="search-end">Through date</label><input id="search-end" type="date" name="end" value="{{.SearchEnd}}"></div>

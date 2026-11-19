@@ -75,6 +75,7 @@ The `syslog-flow` container runs two processes:
 - Shows a live-updating log view in the browser
 - Stores ingested logs as plain text under `./logs` with logical folder organization.
 - Supports day views, per-device views, global search, and severity filters
+- Text filters use case-insensitive literal matching by default. Enable **Regex** beside any search field to use Go regular expressions, such as `nut|ups` for either term. Regex matching also ignores case by default; invalid patterns show an error. Day and device filters continue receiving matching new entries automatically.
 - Search opens a popup with optional text and inclusive From / Through date filters, defaulting to seven days ago through today. Reopening it from results preserves your selected dates. Global results use the normal log viewer and support device and severity filters while preserving the selected dates. Blank dates include all days; text is optional. Search keeps the newest 5,000 matching entries.
 - Click a timestamp in global results to open its original day/device file, load surrounding entries without search filters, and highlight the selected entry. This context view pauses live log updates and offers **View latest logs** to return to the live view; scrolling up still loads older entries.
 - Shows simple statistics and live device activity at '/statistics`
@@ -165,6 +166,7 @@ docker compose up --build -d
 
 - Logs are stored as plain text only. There is no database.
 - Live day views keep up to 5,000 rows during automatic updates. Scroll up to load older entries from disk.
+- If a live day view falls behind the server's retained entries, it reloads the latest matching window. While you are scrolled up or selecting text, this recovery waits until you return to the bottom with no selection; stats continue updating.
 - Device and severity pill lists compact into scrollable rows when the log viewer would otherwise have less than 325px of height, and expand again when space allows. This responds to the actual viewer space rather than a fixed screen-height breakpoint.
 - Open log and statistics pages reload on their next successful poll after a server restart or midnight index reset. The URL and filters stay selected; scroll position and loaded history reset.
 - Completed log days keep a small JSON summary beside their `.log` files, such as `logs/2026/05/05/2026-05-05.json`. Missing or unusable summaries are rebuilt on startup; valid existing summaries are only refreshed from Settings.

@@ -92,6 +92,8 @@ func TestSearchCombinesDatesDeviceSeverityAndText(t *testing.T) {
 		{"start=2026-10-19&end=2026-10-19&file=nas.log&level=info", 1},
 		{"start=2026-10-19&end=2026-10-19", 6},
 		{"level=err&q=disk", 6},
+		{"level=err&q=DISK%7Cnetwork&regex=1", 12},
+		{"level=err&q=DISK%7Cnetwork", 0},
 		{"file=missing.log", 0},
 	} {
 		values, _ := url.ParseQuery(tc.query)
@@ -100,7 +102,11 @@ func TestSearchCombinesDatesDeviceSeverityAndText(t *testing.T) {
 			t.Fatal(err)
 		}
 		selected := searchDateDays(days, data)
-		results, err := searchDays(root, selected, logFilter{Query: data.Query, Severity: data.Severity}, data.File)
+		filter, err := newLogFilter(data.Query, data.Severity, data.Regex)
+		if err != nil {
+			t.Fatal(err)
+		}
+		results, err := searchDays(root, selected, filter, data.File)
 		if err != nil || len(results.lines) != tc.count {
 			t.Fatalf("%s: got %d lines, want %d: %v", tc.query, len(results.lines), tc.count, err)
 		}
@@ -160,14 +166,14 @@ func TestSearchLimitUsesPhysicalOrderForEqualTimestamps(t *testing.T) {
 }
 
 func TestSearchPagePreservesFilters(t *testing.T) {
-	data := PageData{Global: true, Query: "disk & error", File: "router.log", Severity: "err", SearchStart: "2026-10-18", SearchEnd: "2026-10-20", SearchDevices: []LogFile{{Name: "nas.log"}, {Name: "router.log"}}}
+	data := PageData{Global: true, Query: "disk & error", Regex: true, File: "router.log", Severity: "err", SearchStart: "2026-10-18", SearchEnd: "2026-10-20", SearchDevices: []LogFile{{Name: "nas.log"}, {Name: "router.log"}}}
 	for _, selection := range [][2]string{{"nas.log", "err"}, {"router.log", "crit"}, {"", "err"}, {"router.log", ""}} {
 		link, err := url.Parse(data.SearchURL(selection[0], selection[1]))
 		if err != nil {
 			t.Fatal(err)
 		}
 		values := link.Query()
-		if values.Get("q") != data.Query || values.Get("start") != data.SearchStart || values.Get("end") != data.SearchEnd || values.Get("file") != selection[0] || values.Get("level") != selection[1] {
+		if values.Get("q") != data.Query || values.Get("regex") != "1" || values.Get("start") != data.SearchStart || values.Get("end") != data.SearchEnd || values.Get("file") != selection[0] || values.Get("level") != selection[1] {
 			t.Fatalf("filter link lost selected values: %s", link)
 		}
 	}

@@ -68,6 +68,87 @@ func TestRefreshFileWaitsForCompleteRecords(t *testing.T) {
 	}
 }
 
+func TestDaySnapshotKeepsWindowAndCursorTogether(t *testing.T) {
+	for _, query := range []string{"", "UPS", "nut|ups"} {
+		for _, file := range []string{"", "router.log"} {
+			for _, appendBeforeRead := range []bool{false, true} {
+				now := appNow()
+				day := now.Format("2006/01/02")
+				path := filepath.Join(t.TempDir(), "router.log")
+				first := actionLine(now, "router", "err", "UPS first")
+				second := actionLine(now.Add(time.Second), "router", "err", "UPS second")
+				contents := first + strings.TrimSuffix(second, "\n")
+				index := &logIndex{generation: "snapshot-test", lastRefresh: now, files: make(map[string]*indexedFile)}
+				refresh := func(step int) {
+					t.Helper()
+					if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+						t.Fatal(err)
+					}
+					if err := index.refreshFile(discoveredFile{path: path, day: day, name: "router.log", size: int64(len(contents)), modTime: now.Add(time.Duration(step) * time.Second)}, defaultAppConfig(), now); err != nil {
+						t.Fatal(err)
+					}
+				}
+				refresh(0)
+				filter, err := newLogFilter(query, "", query == "nut|ups")
+				if err != nil {
+					t.Fatal(err)
+				}
+				files, snapshot, err := index.dayScanSnapshot(now, day, file)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(files) != 1 || files[0].size != int64(len(first)) || snapshot.cursor != 1 {
+					t.Fatalf("snapshot must stop at the indexed complete line: %+v %+v", files, snapshot)
+				}
+				appendLines := func() {
+					contents += "\n" + actionLine(now.Add(2*time.Second), "router", "err", "UPS third")
+					refresh(1)
+				}
+				if appendBeforeRead {
+					appendLines()
+				}
+				window, err := readDaySnapshot(files, snapshot, filter, -1, dayChunkSize)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !appendBeforeRead {
+					appendLines()
+				}
+				if len(window.lines) != 1 || !strings.Contains(window.lines[0], "UPS first") || window.cursor != 1 || window.total != 1 || window.generation != "snapshot-test" {
+					t.Fatalf("later writes changed the window or cursor: %+v", window)
+				}
+				payload, err := index.dayAppends(now, day, file, filter, window.cursor)
+				if err != nil || payload.Cursor != 3 || len(payload.Lines) != 2 || !strings.Contains(payload.Lines[0], "UPS second") || !strings.Contains(payload.Lines[1], "UPS third") {
+					t.Fatalf("later writes must arrive exactly once on the next poll: %+v, %v", payload, err)
+				}
+				caughtUp, err := index.dayAppends(now, day, file, filter, payload.Cursor)
+				if err != nil || len(caughtUp.Lines) != 0 {
+					t.Fatalf("caught-up poll repeated entries: %+v, %v", caughtUp, err)
+				}
+			}
+		}
+	}
+}
+
+func TestArchivedDaySnapshotUsesCachedFileSize(t *testing.T) {
+	now := appNow()
+	day := now.AddDate(0, 0, -1).Format("2006/01/02")
+	path := filepath.Join(t.TempDir(), "router.log")
+	contents := actionLine(now.AddDate(0, 0, -1), "router", "err", "UPS archived")
+	appendActionLog(t, path, contents)
+	index := &logIndex{generation: "archive-test", lastRefresh: now, files: map[string]*indexedFile{
+		path: {path: path, day: day, name: "router.log", size: int64(len(contents)), lineCount: 1},
+	}}
+	files, snapshot, err := index.dayScanSnapshot(now, day, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	window, err := readDaySnapshot(files, snapshot, logFilter{Query: "UPS"}, -1, dayChunkSize)
+	if err != nil || len(window.lines) != 1 || window.total != 1 || window.cursor != 0 {
+		t.Fatalf("archive metadata must retain readable logs without a live cursor: %+v, %v", window, err)
+	}
+}
+
 func TestDayAppendsDetectsBusyDeviceGap(t *testing.T) {
 	now := appNow()
 	day := now.Format("2006/01/02")

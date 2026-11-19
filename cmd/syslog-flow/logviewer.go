@@ -1,14 +1,47 @@
 package main
 
 import (
+	"fmt"
 	"html"
 	"html/template"
+	"net/url"
+	"regexp"
 	"strings"
 )
 
 type logFilter struct {
 	Query    string
 	Severity string
+	pattern  *regexp.Regexp
+}
+
+func newLogFilter(query, severity string, regex bool) (logFilter, error) {
+	filter := logFilter{Query: query, Severity: severity}
+	if regex && query != "" {
+		pattern, err := regexp.Compile("(?i)" + query)
+		if err != nil {
+			return filter, fmt.Errorf("invalid regular expression: %w", err)
+		}
+		filter.pattern = pattern
+	}
+	return filter, nil
+}
+
+func (data PageData) DayURL(file, severity string) string {
+	values := url.Values{}
+	for key, value := range map[string]string{"q": data.Query, "file": file, "level": severity} {
+		if value != "" {
+			values.Set(key, value)
+		}
+	}
+	if data.Regex {
+		values.Set("regex", "1")
+	}
+	path := "/day/" + data.Selected
+	if len(values) > 0 {
+		path += "?" + values.Encode()
+	}
+	return path
 }
 
 type logBodyParts struct {
@@ -24,6 +57,9 @@ func matchesLogFilter(visible string, filter logFilter) bool {
 	}
 	if filter.Query == "" {
 		return true
+	}
+	if filter.pattern != nil {
+		return filter.pattern.MatchString(visible)
 	}
 	return strings.Contains(strings.ToLower(visible), strings.ToLower(filter.Query))
 }

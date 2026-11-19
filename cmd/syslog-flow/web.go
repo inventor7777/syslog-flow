@@ -159,6 +159,8 @@ var page = template.Must(template.New("page").Funcs(template.FuncMap{
       color: var(--ink);
       box-shadow: var(--glow-soft);
     }
+    .regex-toggle { display: inline-flex; align-items: center; gap: .35rem; white-space: nowrap; }
+    .regex-toggle input[type="checkbox"] { flex: none; min-width: 0; width: auto; padding: 0; accent-color: var(--accent); }
     form button {
       padding: 0.65rem 0.9rem;
       border: 0;
@@ -483,6 +485,7 @@ var page = template.Must(template.New("page").Funcs(template.FuncMap{
             {{if .File}}<input type="hidden" name="file" value="{{.File}}">{{end}}
             {{if .Severity}}<input type="hidden" name="level" value="{{.Severity}}">{{end}}
             <input name="q" value="{{.Query}}" placeholder="Filter search results" aria-label="Filter search results">
+            {{template "regex-toggle" .}}
             <button type="submit">Filter</button>
           </form>
           <div class="files" aria-label="Filter by device">
@@ -584,9 +587,9 @@ var page = template.Must(template.New("page").Funcs(template.FuncMap{
 
         {{if .Files}}
           <div class="files">
-            <a class="chip {{if not .File}}active{{end}}" href="/day/{{.Selected}}?level={{.Severity | urlquery}}{{if .Query}}&q={{.Query | urlquery}}{{end}}">All files</a>
+            <a class="chip {{if not .File}}active{{end}}" href="{{.DayURL "" .Severity}}">All files</a>
             {{range .Files}}
-              <a class="chip {{if eq $.File .Name}}active{{end}}"{{with deviceFileColor .Name}} style="color: {{.}};"{{end}} href="/day/{{$.Selected}}?file={{.Name | urlquery}}&level={{$.Severity | urlquery}}{{if $.Query}}&q={{$.Query | urlquery}}{{end}}">{{.Name}}</a>
+              <a class="chip {{if eq $.File .Name}}active{{end}}"{{with deviceFileColor .Name}} style="color: {{.}};"{{end}} href="{{$.DayURL .Name $.Severity}}">{{.Name}}</a>
             {{end}}
           </div>
         {{end}}
@@ -596,18 +599,12 @@ var page = template.Must(template.New("page").Funcs(template.FuncMap{
             {{if .File}}<input type="hidden" name="file" value="{{.File}}">{{end}}
             {{if .Severity}}<input type="hidden" name="level" value="{{.Severity}}">{{end}}
             <input name="q" value="{{.Query}}" placeholder="Filter this day{{if .File}} / file{{end}}">
+            {{template "regex-toggle" .}}
             <button type="submit">Filter</button>
           </form>
           <div class="files">
-            <a class="chip {{if eq .Severity ""}}active{{end}}" href="/day/{{.Selected}}{{if .File}}?file={{.File | urlquery}}{{if .Query}}&q={{.Query | urlquery}}{{end}}{{else if .Query}}?q={{.Query | urlquery}}{{end}}">All events</a>
-            <a class="chip severity-chip {{if eq .Severity "emerg"}}active{{end}}" style="--chip-accent: {{statusColor "emerg"}};" href="/day/{{.Selected}}?level=emerg{{if .File}}&file={{.File | urlquery}}{{end}}{{if .Query}}&q={{.Query | urlquery}}{{end}}">Emerg</a>
-            <a class="chip severity-chip {{if eq .Severity "alert"}}active{{end}}" style="--chip-accent: {{statusColor "alert"}};" href="/day/{{.Selected}}?level=alert{{if .File}}&file={{.File | urlquery}}{{end}}{{if .Query}}&q={{.Query | urlquery}}{{end}}">Alert</a>
-            <a class="chip severity-chip {{if eq .Severity "crit"}}active{{end}}" style="--chip-accent: {{statusColor "crit"}};" href="/day/{{.Selected}}?level=crit{{if .File}}&file={{.File | urlquery}}{{end}}{{if .Query}}&q={{.Query | urlquery}}{{end}}">Crit</a>
-            <a class="chip severity-chip {{if eq .Severity "err"}}active{{end}}" style="--chip-accent: {{statusColor "err"}};" href="/day/{{.Selected}}?level=err{{if .File}}&file={{.File | urlquery}}{{end}}{{if .Query}}&q={{.Query | urlquery}}{{end}}">Err</a>
-            <a class="chip severity-chip {{if eq .Severity "warning"}}active{{end}}" style="--chip-accent: {{statusColor "warning"}};" href="/day/{{.Selected}}?level=warning{{if .File}}&file={{.File | urlquery}}{{end}}{{if .Query}}&q={{.Query | urlquery}}{{end}}">Warning</a>
-            <a class="chip severity-chip {{if eq .Severity "notice"}}active{{end}}" style="--chip-accent: {{statusColor "notice"}};" href="/day/{{.Selected}}?level=notice{{if .File}}&file={{.File | urlquery}}{{end}}{{if .Query}}&q={{.Query | urlquery}}{{end}}">Notice</a>
-            <a class="chip severity-chip {{if eq .Severity "info"}}active{{end}}" style="--chip-accent: {{statusColor "info"}};" href="/day/{{.Selected}}?level=info{{if .File}}&file={{.File | urlquery}}{{end}}{{if .Query}}&q={{.Query | urlquery}}{{end}}">Info</a>
-            <a class="chip severity-chip {{if eq .Severity "debug"}}active{{end}}" style="--chip-accent: {{statusColor "debug"}};" href="/day/{{.Selected}}?level=debug{{if .File}}&file={{.File | urlquery}}{{end}}{{if .Query}}&q={{.Query | urlquery}}{{end}}">Debug</a>
+            <a class="chip {{if not .Severity}}active{{end}}" href="{{.DayURL .File ""}}">All events</a>
+            {{range severityNames}}<a class="chip severity-chip {{if eq $.Severity .}}active{{end}}" style="--chip-accent: {{statusColor .}}; text-transform: capitalize;" href="{{$.DayURL $.File .}}">{{.}}</a>{{end}}
           </div>
         {{end}}
 
@@ -749,6 +746,7 @@ var page = template.Must(template.New("page").Funcs(template.FuncMap{
     let hasOlder = logViewer?.dataset.hasOlder === "true";
     let loadingOlder = false;
     let refreshingLogs = false;
+    let replacementPending = false;
 
     function deviceColorForName(name) {
       if (!name) {
@@ -1115,6 +1113,9 @@ var page = template.Must(template.New("page").Funcs(template.FuncMap{
         if (!liveEnabled || navigationPending || loadingOlder || refreshingLogs) {
           return;
         }
+        if (replacementPending && (hasViewerSelection() || logViewer.scrollHeight - logViewer.clientHeight - logViewer.scrollTop > 4)) {
+          return;
+        }
         refreshingLogs = true;
         try {
           const refreshUrl = new URL(logViewer.dataset.refreshUrl, window.location.origin);
@@ -1128,7 +1129,11 @@ var page = template.Must(template.New("page").Funcs(template.FuncMap{
             const previousTop = logViewer.scrollTop;
             const wasAtBottom = !hasViewerSelection() && logViewer.scrollHeight - logViewer.clientHeight - previousTop <= 4;
             // Keep the entry being read if a missed-data gap requires replacing the view.
-            if (payload.replace && !wasAtBottom) return;
+            if (payload.replace && !wasAtBottom) {
+              replacementPending = true;
+              return;
+            }
+            replacementPending = false;
             const nextLines = Array.isArray(payload.lines) ? payload.lines : [];
             if (typeof payload.cursor === "number" && payload.cursor > 0) {
               refreshCursor = payload.cursor;
@@ -1401,7 +1406,12 @@ func handleDay(w http.ResponseWriter, r *http.Request) {
 
 	before, beforeErr := parseBeforeOffset(r)
 	since, sinceErr := parseSinceCursor(r)
-	filter := logFilter{Query: query, Severity: severity}
+	regex := r.URL.Query().Get("regex") == "1" && target == 0
+	filter, filterErr := newLogFilter(query, severity, regex)
+	if filterErr != nil {
+		http.Error(w, filterErr.Error(), http.StatusBadRequest)
+		return
+	}
 	if wantsLogPartial(r) {
 		if beforeErr != nil {
 			http.Error(w, beforeErr.Error(), http.StatusBadRequest)
@@ -1418,18 +1428,18 @@ func handleDay(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			if payload.Replace {
-				lines, start, total, scanErr := readDayWindow(day, file, filter, before, dayChunkSize)
+				window, scanErr := readDayWindow(day, file, filter, before, dayChunkSize)
 				if scanErr != nil {
 					http.Error(w, scanErr.Error(), http.StatusInternalServerError)
 					return
 				}
 				writeLogPayloadJSON(w, logPayload{
-					Generation:    payload.Generation,
-					Lines:         lines,
-					Start:         start,
-					Total:         total,
-					HasMoreBefore: start > 0,
-					Cursor:        payload.Cursor,
+					Generation:    window.generation,
+					Lines:         window.lines,
+					Start:         window.start,
+					Total:         window.total,
+					HasMoreBefore: window.start > 0,
+					Cursor:        window.cursor,
 					Replace:       true,
 				})
 				return
@@ -1437,26 +1447,22 @@ func handleDay(w http.ResponseWriter, r *http.Request) {
 			writeLogPayloadJSON(w, payload)
 			return
 		}
-		_, generation, cursorErr := stateIndex.dayCursor(appNow(), day, file)
-		if cursorErr != nil {
-			http.Error(w, cursorErr.Error(), http.StatusInternalServerError)
-			return
-		}
-		lines, start, total, scanErr := readDayWindow(day, file, filter, before, dayChunkSize)
+		window, scanErr := readDayWindow(day, file, filter, before, dayChunkSize)
 		if scanErr != nil {
 			http.Error(w, scanErr.Error(), http.StatusInternalServerError)
 			return
 		}
 		if wantsJSONPartial(r) {
 			writeLogPayloadJSON(w, logPayload{
-				Generation:    generation,
-				Lines:         lines,
-				Start:         start,
-				Total:         total,
-				HasMoreBefore: start > 0,
+				Generation:    window.generation,
+				Cursor:        window.cursor,
+				Lines:         window.lines,
+				Start:         window.start,
+				Total:         window.total,
+				HasMoreBefore: window.start > 0,
 			})
 		} else {
-			writeLines(w, lines)
+			writeLines(w, window.lines)
 		}
 		return
 	}
@@ -1466,10 +1472,12 @@ func handleDay(w http.ResponseWriter, r *http.Request) {
 	var lines []string
 	var start, total int
 	var scanErr error
+	var window indexDayWindow
 	if target > 0 {
 		lines, start, total, scanErr = readLogContext(logRoot, day, file, target, r.URL.Query().Get("match"))
 	} else {
-		lines, start, total, scanErr = readDayWindow(day, file, filter, before, dayChunkSize)
+		window, scanErr = readDayWindow(day, file, filter, before, dayChunkSize)
+		lines, start, total = window.lines, window.start, window.total
 	}
 
 	data := PageData{
@@ -1478,6 +1486,7 @@ func handleDay(w http.ResponseWriter, r *http.Request) {
 		Files:         files,
 		File:          file,
 		Query:         query,
+		Regex:         regex,
 		Severity:      severity,
 		Lines:         lines,
 		OlderURL:      logRefreshURL(r),
@@ -1485,6 +1494,8 @@ func handleDay(w http.ResponseWriter, r *http.Request) {
 		TotalLogLines: total,
 		HasOlder:      start > 0,
 		ContextView:   target > 0,
+		RefreshCursor: window.cursor,
+		Generation:    window.generation,
 	}
 	if target > 0 && scanErr == nil {
 		data.TargetIndex = target - start
@@ -1493,12 +1504,6 @@ func handleDay(w http.ResponseWriter, r *http.Request) {
 		data.DaySummary = daySummary(files, dayLines)
 	} else if data.Error == "" {
 		data.Error = summaryErr.Error()
-	}
-	if cursor, generation, cursorErr := stateIndex.dayCursor(appNow(), day, file); cursorErr == nil {
-		data.RefreshCursor = cursor
-		data.Generation = generation
-	} else if data.Error == "" {
-		data.Error = cursorErr.Error()
 	}
 	if err != nil {
 		data.Error = err.Error()
@@ -1521,6 +1526,11 @@ func handleSearch(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	filter, filterErr := newLogFilter(data.Query, data.Severity, data.Regex)
+	if filterErr != nil {
+		http.Error(w, filterErr.Error(), http.StatusBadRequest)
+		return
+	}
 	days, err := listDays()
 	selected := searchDateDays(days, data)
 	data.Days = days
@@ -1528,7 +1538,7 @@ func handleSearch(w http.ResponseWriter, r *http.Request) {
 	results := searchResults{}
 	var scanErr error
 	if err == nil {
-		results, scanErr = searchDays(logRoot, selected, logFilter{Query: data.Query, Severity: data.Severity}, data.File)
+		results, scanErr = searchDays(logRoot, selected, filter, data.File)
 	}
 	data.Lines = results.lines
 	data.SearchLinks = results.links

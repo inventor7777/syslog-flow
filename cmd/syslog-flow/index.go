@@ -597,15 +597,16 @@ func (idx *logIndex) dayAppends(now time.Time, day, file string, filter logFilte
 	return logPayload{Generation: idx.generation, Lines: lines, Cursor: maxSeq}, nil
 }
 
-func (idx *logIndex) dayCursor(now time.Time, day, file string) (int64, string, error) {
+func (idx *logIndex) dayScanSnapshot(now time.Time, day, file string) ([]discoveredFile, indexDayWindow, error) {
 	if err := idx.refresh(now); err != nil {
-		return 0, "", err
+		return nil, indexDayWindow{}, err
 	}
 
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
 
-	var cursor int64
+	var files []discoveredFile
+	window := indexDayWindow{generation: idx.generation}
 	for _, candidate := range idx.files {
 		if candidate.day != day {
 			continue
@@ -613,14 +614,19 @@ func (idx *logIndex) dayCursor(now time.Time, day, file string) (int64, string, 
 		if file != "" && candidate.name != file {
 			continue
 		}
-		if len(candidate.tail) == 0 {
-			continue
+		size := candidate.size
+		if day == now.Format("2006/01/02") {
+			size = candidate.readOffset
 		}
-		if last := candidate.tail[len(candidate.tail)-1].seq; last > cursor {
-			cursor = last
+		files = append(files, discoveredFile{path: candidate.path, day: day, name: candidate.name, size: size})
+		window.total += candidate.lineCount
+		if len(candidate.tail) > 0 {
+			if last := candidate.tail[len(candidate.tail)-1].seq; last > window.cursor {
+				window.cursor = last
+			}
 		}
 	}
-	return cursor, idx.generation, nil
+	return files, window, nil
 }
 
 func discoverDayLogFiles(day string) ([]discoveredFile, error) {

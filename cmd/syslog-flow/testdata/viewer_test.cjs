@@ -160,6 +160,17 @@ async function main() {
   await home.poll({ lines: ["first log"] });
   assert.equal(home.viewer.children.length, 1, "an initially empty homepage must receive logs");
 
+  const emptyDay = viewerContext(true);
+  emptyDay.viewer.dataset.refreshUrl += "&q=nut%7Cups&regex=1";
+  vm.runInContext("refreshCursor = 0", emptyDay.context);
+  await emptyDay.poll({ lines: ["UPS on battery"], cursor: 1 });
+  await emptyDay.poll({ lines: ["nut disconnected"], cursor: 2 });
+  const filteredPoll = new URL(emptyDay.requests.at(-1), "http://localhost").searchParams;
+  assert.equal(filteredPoll.get("since"), "1", "an initially empty day must switch to incremental polling");
+  assert.equal(filteredPoll.get("q"), "nut|ups");
+  assert.equal(filteredPoll.get("regex"), "1", "live polling must retain regex mode");
+  assert.equal(emptyDay.viewer.children.length, 2);
+
   for (const isDay of [false, true]) {
     const reading = viewerContext(isDay);
     const logs = Array.from({ length: 60 }, (_, i) => "log " + i);
@@ -277,11 +288,31 @@ async function main() {
   await day.poll(gap, false);
   assert.equal(day.viewer.children[0], beforeGap, "a missed-data gap must not replace the view while reading");
   assert.equal(vm.runInContext("refreshCursor", day.context), 6012, "a deferred replacement must not advance the cursor");
+  const beforeDeferredPolls = day.requests.length;
+  await day.poll(gap, false);
+  await day.poll(gap, false);
+  assert.equal(day.requests.length, beforeDeferredPolls, "a deferred replacement must not repeat full-day recovery scans");
+  await day.pollStats({ generation: "generation-1" });
+  assert.equal(day.requests.length, beforeDeferredPolls + 1, "stats must keep polling while a replacement is deferred");
   await day.poll(gap);
+  assert.equal(day.requests.length, beforeDeferredPolls + 2, "returning to the bottom must request a fresh replacement");
   assert.equal(day.viewer.children.length, 1);
   await day.older({ lines: ["previous log"], start: 6499, hasMoreBefore: true });
   assert.equal(new URL(day.requests.at(-1), "http://localhost").searchParams.get("before"), "6500",
     "a gap replacement must reset the pagination offset");
+
+  const selectedGap = viewerContext(true);
+  await selectedGap.poll({ lines: ["selected entry"], cursor: 11 });
+  const selection = { rangeCount: 1, isCollapsed: false, getRangeAt: () => ({ commonAncestorContainer: selectedGap.viewer }) };
+  selectedGap.context.window.getSelection = () => selection;
+  await selectedGap.poll(gap);
+  await selectedGap.poll(gap);
+  assert.equal(selectedGap.requests.length, 2, "selection must also defer repeat recovery scans");
+  assert.equal(selectedGap.viewer.children[0].dataset.raw, "selected entry");
+  selection.isCollapsed = true;
+  await selectedGap.poll(gap);
+  assert.equal(selectedGap.requests.length, 3, "clearing selection at the bottom must resume recovery");
+  assert.equal(selectedGap.viewer.children[0].dataset.raw, "replacement log");
 
   const restarted = viewerContext(true);
   await restarted.poll({ generation: "generation-1", lines: ["before restart"], cursor: 11 });
